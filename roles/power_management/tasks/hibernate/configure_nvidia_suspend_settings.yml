@@ -3,6 +3,7 @@
   ansible.builtin.lineinfile:
     path: /etc/modprobe.d/nvidia-power-management.conf
     create: true
+    mode: "0644" # or '0600' if stricter permissions are needed
     regexp: "^options nvidia "
     line: options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp
     state: present
@@ -34,5 +35,5 @@
   become: true
 
 - name: Print reboot instruction
-  debug:
+  ansible.builtin.debug:
     msg: Configuration updated. A system reboot is required for these changes to take effect.
