@@ -1,0 +1,9 @@
+---
+- name: Crawlers
+  ansible.builtin.package:
+    name:
+      - httrack
+      - webhttrack
+    state: present
+  tags:
+    - crawlers
