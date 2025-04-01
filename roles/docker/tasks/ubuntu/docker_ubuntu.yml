@@ -4,8 +4,10 @@
     url: https://download.docker.com/linux/ubuntu/gpg
     keyring: /etc/apt/keyrings/docker.gpg
     state: present
+  tags: [docker]
 
 - name: Add Docker repository
   ansible.builtin.apt_repository:
     repo: deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_facts.distribution_release }} stable
     state: present
+  tags: [docker]

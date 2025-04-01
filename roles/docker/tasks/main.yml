@@ -1,20 +1,8 @@
 ---
-- name: Prepare Ubuntu system for Docker installation
-  ansible.builtin.include_tasks: ubuntu/docker_ubuntu.yml
-  when: ansible_facts['distribution'] == "Ubuntu"
-
-- name: Prepare Ubuntu system for Docker installation
-  ansible.builtin.include_tasks: ubuntu/docker_ubuntu.yml
-  when: ansible_facts['distribution'] == "Pop!_OS"
-
-- name: Prepare Fedora system for Docker installation
-  ansible.builtin.include_tasks: fedora/docker_fedora.yml
-  when: ansible_facts['distribution'] == "Fedora"
-
-- name: Inform about unsupported OS
-  ansible.builtin.debug:
-    msg: "Docker role does not support this OS: {{ ansible_facts['distribution'] }}"
-  when: ansible_facts['distribution'] not in ["Pop!_OS", "Ubuntu", "Fedora"]
-
 - name: Install Docker (Universal)
   ansible.builtin.include_tasks: docker.yml
+  tags: [docker]
+
+- name: Install and configure Kubernetes
+  ansible.builtin.include_tasks: kube.yml
+  tags: [docker]

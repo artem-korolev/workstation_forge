@@ -15,16 +15,19 @@
       - docker-engine
     state: absent
   failed_when: remove_docker.rc not in [0, 1] # 0 = success, 1 = package not installed
+  tags: [docker]
 
 - name: Ensure dnf-plugins-core is installed
   ansible.builtin.dnf:
     name: dnf-plugins-core
     state: present
+  tags: [docker]
 
 - name: Add Docker repository
   ansible.builtin.command: dnf-3 config-manager --add-repo https://download.docker.com/linux/fedora/docker-ce.repo
   args:
     creates: /etc/yum.repos.d/docker-ce.repo
+  tags: [docker]
 
 - name: Install Docker packages
   ansible.builtin.package:
@@ -35,3 +38,4 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
+  tags: [docker]

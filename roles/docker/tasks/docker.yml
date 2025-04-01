@@ -1,4 +1,25 @@
 ---
+- name: Prepare Ubuntu system for Docker installation
+  ansible.builtin.include_tasks: ubuntu/docker_ubuntu.yml
+  when: ansible_facts['distribution'] == "Ubuntu"
+  tags: [docker]
+
+- name: Prepare Ubuntu system for Docker installation
+  ansible.builtin.include_tasks: ubuntu/docker_ubuntu.yml
+  when: ansible_facts['distribution'] == "Pop!_OS"
+  tags: [docker]
+
+- name: Prepare Fedora system for Docker installation
+  ansible.builtin.include_tasks: fedora/docker_fedora.yml
+  when: ansible_facts['distribution'] == "Fedora"
+  tags: [docker]
+
+- name: Inform about unsupported OS
+  ansible.builtin.debug:
+    msg: "Docker role does not support this OS: {{ ansible_facts['distribution'] }}"
+  when: ansible_facts['distribution'] not in ["Pop!_OS", "Ubuntu", "Fedora"]
+  tags: [docker]
+
 - name: Install Docker packages
   ansible.builtin.package:
     name:
@@ -8,6 +29,7 @@
       - docker-buildx-plugin
       - docker-compose-plugin
     state: present
+  tags: [docker]
 
 - name: Add users to docker group
   ansible.builtin.user:
@@ -15,6 +37,7 @@
     groups: docker
     append: true
   loop: "{{ docker_users }}"
+  tags: [docker]
 
 - name: Keep Docker services disabled by default (they will be started automatically on-demand)
   ansible.builtin.service:
@@ -24,3 +47,4 @@
   loop:
     - docker.service
     - containerd.service
+  tags: [docker]
