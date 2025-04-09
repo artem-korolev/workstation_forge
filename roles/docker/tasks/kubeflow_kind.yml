@@ -22,10 +22,18 @@
   tags: [docker]
 
 - name: Save kubeconfig for Kind cluster
-  ansible.builtin.shell: kind get kubeconfig --name kubeflow > /tmp/kubeflow-config && chmod a+r /tmp/kubeflow-config
+  ansible.builtin.shell: |
+    kind get kubeconfig --name kubeflow > /tmp/kubeflow-config
+    chmod a+r /tmp/kubeflow-config
   changed_when: true
+  tags: [docker]
+
+- name: Deploy NVIDIA device plugin for GPU support
+  ansible.builtin.command: >
+    kubectl apply -f https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/{{ nvidia_kubernetes_device_plugin_version }}/deployments/static/nvidia-device-plugin.yml
   environment:
     KUBECONFIG: /tmp/kubeflow-config
+  when: nvidia_container_toolkit | default(false)
   tags: [docker]
 
 # --- (Optional) Create Docker registry secret ---

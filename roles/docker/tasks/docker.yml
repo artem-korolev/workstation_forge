@@ -31,6 +31,29 @@
     state: present
   tags: [docker]
 
+- name: Installing the NVIDIA Container Toolkit
+  ansible.builtin.package:
+    name:
+      - nvidia-container-toolkit
+    state: present
+  when: nvidia_container_toolkit | default(false)
+  tags: [docker]
+
+- name: Configuring Docker to use NVIDIA Container Toolkit
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
+  register: nvidia_ctk_status
+  changed_when: true
+  failed_when: nvidia_ctk_status.rc != 0
+  when: nvidia_container_toolkit | default(false)
+  tags: [docker]
+
+- name: Restart Docker service
+  ansible.builtin.service:
+    name: docker.service
+    enabled: true
+    state: restarted
+  tags: [docker]
+
 - name: Add users to docker group
   ansible.builtin.user:
     name: "{{ item }}"

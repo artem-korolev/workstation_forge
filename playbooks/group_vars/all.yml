@@ -40,6 +40,10 @@ vulkan_sdk_install_dir: /opt/vulkansdk
 rpm_based_pkg_managers: [dnf, dnf5, yum, zypper]
 deb_based_pkg_managers: [apt]
 
+# Docker
+nvidia_container_toolkit: true
+nvidia_kubernetes_device_plugin_version: v0.17.1
+
 # Kubernetes
 kube_kind_version: v0.27.0
 kube_kustomize_version: v5.6.0
