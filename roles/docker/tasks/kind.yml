@@ -1,0 +1,68 @@
+---
+- name: Ensure /usr/local/bin exists
+  ansible.builtin.file:
+    path: /usr/local/bin
+    state: directory
+    mode: "0755"
+  tags: [docker]
+
+- name: Set download URL based on architecture
+  ansible.builtin.set_fact:
+    kind_arch: >-
+      {{ 'amd64' if ansible_architecture == 'x86_64'
+         else 'arm64' if ansible_architecture == 'aarch64'
+         else '' }}
+  when: ansible_system == "Linux"
+  tags: [docker]
+
+- name: Fail if architecture is unsupported
+  ansible.builtin.fail:
+    msg: "Unsupported architecture: {{ ansible_architecture }}"
+  when: kind_arch == ''
+  tags: [docker]
+
+- name: Download kind binary
+  ansible.builtin.get_url:
+    url: "https://kind.sigs.k8s.io/dl/{{ kube_kind_version }}/kind-linux-{{ kind_arch }}"
+    dest: /usr/local/bin/kind
+    mode: "0755"
+    force: true
+  become: true
+  tags: [docker]
+
+- name: Retrieve latest stable kubectl version
+  ansible.builtin.shell: curl -L -s https://dl.k8s.io/release/stable.txt
+  register: kubectl_version_result
+  changed_when: false
+  tags: [docker]
+
+- name: Download kubectl binary
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ kubectl_version_result.stdout }}/bin/linux/amd64/kubectl"
+    dest: /usr/local/bin/kubectl
+    mode: "0755"
+  become: true
+  tags: [docker]
+
+- name: Download kustomize tarball
+  ansible.builtin.get_url:
+    url: "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F{{ kube_kustomize_version }}/kustomize_{{ kube_kustomize_version }}_linux_amd64.tar.gz"
+    dest: /tmp/kustomize.tar.gz
+    mode: "0644"
+  become: true
+  tags: [docker]
+
+- name: Extract kustomize binary
+  ansible.builtin.unarchive:
+    src: /tmp/kustomize.tar.gz
+    dest: /usr/local/bin/
+  become: true
+  tags: [docker]
+
+
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: kubeflow_kind.yml
+  when:
+    - kube_install_kubeflow | default(false)
+    - kubeflow_on_kind | default(false)
+  tags: [docker]

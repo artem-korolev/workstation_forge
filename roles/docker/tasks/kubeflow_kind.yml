@@ -1,0 +1,79 @@
+---
+- name: Generate Kind cluster configuration from template
+  ansible.builtin.template:
+    src: kubeflow-kind-config.yaml.j2
+    dest: /tmp/kubeflow-kind-config.yaml
+    mode: "0644"
+  tags: [docker]
+
+- name: Check if Kind cluster "kubeflow" exists
+  ansible.builtin.command: kind get clusters
+  register: kind_clusters
+  changed_when: false
+  tags: [docker]
+
+- name: Create Kind cluster for Kubeflow if not exists
+  ansible.builtin.command: >
+    kind create cluster --name=kubeflow --config=/tmp/kubeflow-kind-config.yaml
+  environment:
+    KUBECONFIG: /tmp/kubeflow-config
+  when: "'kubeflow' not in kind_clusters.stdout"
+  changed_when: true
+  tags: [docker]
+
+- name: Save kubeconfig for Kind cluster
+  ansible.builtin.shell: kind get kubeconfig --name kubeflow > /tmp/kubeflow-config && chmod a+r /tmp/kubeflow-config
+  changed_when: true
+  environment:
+    KUBECONFIG: /tmp/kubeflow-config
+  tags: [docker]
+
+# --- (Optional) Create Docker registry secret ---
+# - name: Create Docker registry secret for pulling images
+#   ansible.builtin.command: >
+#     kubectl create secret generic regcred
+#     --from-file=.dockerconfigjson={{ lookup('env','HOME') }}/.docker/config.json
+#     --type=kubernetes.io/dockerconfigjson
+#   register: regcred_result
+#   environment:
+#     KUBECONFIG: /tmp/kubeflow-config
+#   ignore_errors: true
+#   tags: [docker]
+
+# - name: Fail playbook if Docker registry secret creation failed
+#   ansible.builtin.fail:
+#     msg: Docker registry secret creation failed. Run 'docker login' to configure Docker Hub credentials, then re-run the playbook.
+#   when: regcred_result.rc != 0
+#   tags: [docker]
+
+- name: "Clone Kubeflow manifests repository at {{ kubeflow_version }}"
+  ansible.builtin.git:
+    repo: https://github.com/kubeflow/manifests.git
+    dest: /tmp/kubeflow_manifests
+    version: "{{ kubeflow_version }}"
+  tags: [docker]
+
+- name: Apply Kubeflow manifests using kustomize in a retry loop
+  ansible.builtin.shell: |
+    while ! kustomize build example | kubectl apply --server-side --force-conflicts -f -; do
+      echo "Retrying to apply resources";
+      sleep 20;
+    done
+  environment:
+    KUBECONFIG: /tmp/kubeflow-config
+  args:
+    chdir: /tmp/kubeflow_manifests
+  tags: [docker]
+
+- name: Wait for all Kubeflow pods to be ready
+  ansible.builtin.shell: |
+    kubectl wait --for=condition=Ready pods --all -n kubeflow --timeout=600s
+  environment:
+    KUBECONFIG: /tmp/kubeflow-config
+  tags: [docker]
+
+- name: Remove /tmp/kubeflow_manifests directory
+  ansible.builtin.file:
+    path: /tmp/kubeflow_manifests
+    state: absent
+  tags: [docker]

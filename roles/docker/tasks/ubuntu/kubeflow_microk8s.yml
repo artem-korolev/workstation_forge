@@ -1,0 +1,43 @@
+# -----------------------------------------------------------------
+#  OPTIONAL: Kubeflow Installation (Charmed Kubeflow with Juju)
+#  Control with a role variable: `install_kubeflow: true`
+# -----------------------------------------------------------------
+- name: Install Juju (Ubuntu-specific) for Kubeflow
+  community.general.snap:
+    name: juju
+    state: present
+    classic: true
+  tags: [docker]
+
+- name: Bootstrap Juju controller on MicroK8s
+  ansible.builtin.command: juju bootstrap microk8s micro
+  tags: [docker]
+
+- name: Create a 'kubeflow' model on Juju
+  ansible.builtin.command: juju add-model kubeflow
+  # 'changed_when' can be refined if you want idempotence checks
+  changed_when: true
+  tags: [docker]
+
+- name: "Deploy Kubeflow (Lightweight: kubeflow-lite)"
+  ansible.builtin.command: juju deploy kubeflow-lite
+  changed_when: true
+  tags: [docker]
+
+# If you want an immediate status check, do it here:
+- name: Wait for Kubeflow pods to become active
+  ansible.builtin.command: juju status
+  register: kubeflow_juju_status
+  changed_when: false
+  failed_when: kubeflow_juju_status.rc != 0
+  tags: [docker]
+
+# Example: instructions for port-forwarding to access Kubeflow Dashboard
+# (Typically you'd do this manually, but you can also script it.)
+- name: Display hint for accessing Kubeflow Dashboard
+  ansible.builtin.debug:
+    msg: >
+      To access Kubeflow Dashboard, run:
+      microk8s kubectl port-forward svc/istio-ingressgateway-workload -n kubeflow 8080:80
+      Then open http://localhost:8080
+  tags: [docker]

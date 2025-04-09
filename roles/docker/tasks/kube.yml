@@ -1,15 +1,24 @@
 - name: Install Single Node Kubernetes (MicroK8s)
-  ansible.builtin.include_tasks: ubuntu/kube_ubuntu.yml
-  when: ansible_facts['distribution'] == "Ubuntu"
+  ansible.builtin.include_tasks: ubuntu/kube_microk8s.yml
+  when:
+    - ansible_facts['distribution'] == "Ubuntu"
+    - kube_microk8s | default(false)
   tags: [docker]
 
 - name: Install Single Node Kubernetes (MicroK8s)
-  ansible.builtin.include_tasks: ubuntu/kube_ubuntu.yml
-  when: ansible_facts['distribution'] == "Pop!_OS"
+  ansible.builtin.include_tasks: ubuntu/kube_microk8s.yml
+  when:
+    - ansible_facts['distribution'] == "Pop!_OS"
+    - kube_microk8s | default(false)
   tags: [docker]
 
 - name: Inform about unsupported OS
   ansible.builtin.debug:
     msg: "Docker role does not support this OS: {{ ansible_facts['distribution'] }}"
   when: ansible_facts['distribution'] not in ["Pop!_OS", "Ubuntu"]
+  tags: [docker]
+
+- name: Install Single Node Kubernetes (Kind)
+  ansible.builtin.include_tasks: kind.yml
+  when: kube_kind | default(false)
   tags: [docker]

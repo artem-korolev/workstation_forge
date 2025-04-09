@@ -9,7 +9,6 @@
   community.general.snap:
     name: microk8s
     classic: true
-    # channel: 1.32.2/stable # or any channel you prefer (e.g., latest)
     state: present
   tags: [docker]
 
@@ -21,6 +20,13 @@
   loop: "{{ docker_users }}"
   tags: [docker]
 
+- name: Ensure microk8s is running
+  ansible.builtin.command: microk8s start
+  register: microk8s_start_status
+  changed_when: true
+  failed_when: microk8s_start_status.rc != 0
+  tags: [docker]
+
 - name: Wait for MicroK8s to be ready
   ansible.builtin.command: microk8s status --wait-ready
   register: microk8s_status
@@ -28,12 +34,30 @@
   failed_when: microk8s_status.rc != 0
   tags: [docker]
 
-- name: Enable common add-ons (DNS, dashboard, storage) - optional
-  ansible.builtin.command: microk8s enable dns storage dashboard
+- name: Enable DNS
+  ansible.builtin.command: microk8s enable dns
   changed_when: true
   tags: [docker]
-  # The above can also be done with `command`, but `shell` is used
-  # to pass multiple arguments in one shot.
+
+- name: Enable Storage
+  ansible.builtin.command: microk8s enable storage
+  changed_when: true
+  tags: [docker]
+
+- name: Enable Dashboard
+  ansible.builtin.command: microk8s enable dashboard
+  changed_when: true
+  tags: [docker]
+
+- name: Enable Ingress
+  ansible.builtin.command: microk8s enable ingress
+  changed_when: true
+  tags: [docker]
+
+- name: Enable MetalLB with IP range
+  ansible.builtin.command: microk8s enable metallb:{{ metallb_ip_range }}
+  changed_when: true
+  tags: [docker]
 
 # Example of using Ansible template to place a demo YAML
 - name: Deploy sample workload
@@ -45,5 +69,17 @@
 
 - name: Apply the sample deployment
   ansible.builtin.command: microk8s kubectl apply -f /tmp/sample-deployment.yaml
+  changed_when: true
+  tags: [docker]
+
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: kubeflow_microk8s.yml
+  when:
+    - kube_install_kubeflow | default(false)
+    - kubeflow_on_microk8s | default(false)
+  tags: [docker]
+
+- name: Stop microk8s to save resources
+  ansible.builtin.command: microk8s stop
   changed_when: true
   tags: [docker]

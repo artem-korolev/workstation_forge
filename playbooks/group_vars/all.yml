@@ -39,3 +39,14 @@ vulkan_sdk_install_dir: /opt/vulkansdk
 
 rpm_based_pkg_managers: [dnf, dnf5, yum, zypper]
 deb_based_pkg_managers: [apt]
+
+# Kubernetes
+kube_kind_version: v0.27.0
+kube_kustomize_version: v5.6.0
+kube_install_kubeflow: true
+kube_kind: true
+kube_microk8s: false
+kubeflow_version: v1.10.0
+kubeflow_on_kind: true
+kubeflow_on_microk8s: false
+metallb_ip_range: 192.168.1.240-192.168.1.250
