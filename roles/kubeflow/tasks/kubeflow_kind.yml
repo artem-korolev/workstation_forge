@@ -1,4 +1,11 @@
 ---
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: kubeflow_kind.yml
+  when:
+    - kube_install_kubeflow | default(false)
+    - kubeflow_on_kind | default(false)
+  tags: [docker]
+
 - name: Generate Kind cluster configuration from template
   ansible.builtin.template:
     src: kubeflow-kind-config.yaml.j2
@@ -27,6 +34,15 @@
     chmod a+r /tmp/kubeflow-config
   changed_when: true
   tags: [docker]
+
+# - name: Deploy NVIDIA device plugin for GPU support
+#   community.kubernetes.k8s:
+#     state: present
+#     kubeconfig: /tmp/kubeflow-config
+#     context: kubeflow
+#     definition: https://raw.githubusercontent.com/NVIDIA/k8s-device-plugin/v0.17.1/deployments/static/nvidia-device-plugin.yml
+#   when: nvidia_container_toolkit | default(false)
+#   tags: [docker]
 
 - name: Deploy NVIDIA device plugin for GPU support
   ansible.builtin.command: >
@@ -75,7 +91,7 @@
 
 - name: Wait for all Kubeflow pods to be ready
   ansible.builtin.shell: |
-    kubectl wait --for=condition=Ready pods --all -n kubeflow --timeout=600s
+    kubectl wait --for=condition=Ready pods --all -n kubeflow --timeout=1200s
   environment:
     KUBECONFIG: /tmp/kubeflow-config
   tags: [docker]

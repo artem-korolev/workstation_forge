@@ -47,10 +47,15 @@ nvidia_kubernetes_device_plugin_version: v0.17.1
 # Kubernetes
 kube_kind_version: v0.27.0
 kube_kustomize_version: v5.6.0
+kube_helm_version: v3.17.3
 kube_install_kubeflow: true
 kube_kind: true
-kube_microk8s: false
+kube_microk8s: true
+kube_metallb_network: 10.10.10.1/24
+kube_metallb_ip_range: 10.10.10.240-10.10.10.254
+
+
+# Kubeflow
 kubeflow_version: v1.10.0
-kubeflow_on_kind: true
-kubeflow_on_microk8s: false
-metallb_ip_range: 192.168.1.240-192.168.1.250
+kubeflow_on_kind: false
+kubeflow_on_microk8s: true

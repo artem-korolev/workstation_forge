@@ -1,0 +1,115 @@
+---
+- name: Ensure Snap is installed (Ubuntu-specific)
+  ansible.builtin.apt:
+    name: snapd
+    state: present
+  tags: [kubernetes]
+
+- name: Install MicroK8s via snap (Ubuntu-specific)
+  community.general.snap:
+    name: microk8s
+    classic: true
+    state: present
+  tags: [kubernetes]
+
+- name: Add users to MicroK8s group
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: microk8s
+    append: true
+  loop: "{{ docker_users }}"
+  tags: [kubernetes]
+
+- name: Ensure microk8s is running
+  ansible.builtin.command: microk8s start
+  register: microk8s_start_status
+  changed_when: true
+  failed_when: microk8s_start_status.rc != 0
+  tags: [kubernetes]
+
+- name: Wait for MicroK8s to be ready
+  ansible.builtin.command: microk8s status --wait-ready
+  register: microk8s_status
+  changed_when: false
+  failed_when: microk8s_status.rc != 0
+  tags: [kubernetes]
+
+- name: Enable DNS
+  ansible.builtin.command: microk8s enable dns
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Enable Storage
+  ansible.builtin.command: microk8s enable storage
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Enable Dashboard
+  ansible.builtin.command: microk8s enable dashboard
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Enable Ingress
+  ansible.builtin.command: microk8s enable ingress
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Disable existing MetalLB (if enabled)
+  ansible.builtin.command: microk8s.disable metallb
+  become: true
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Ensure dummy interface "metallb" exists
+  ansible.builtin.shell: |
+    if ! ip link show metallb > /dev/null 2>&1; then
+      # Load the dummy module (create one dummy device)
+      modprobe dummy numdummies=1
+      # Rename the created dummy device (usually named "dummy0") to "metallb"
+      ip link set dummy0 name metallb
+    fi
+  changed_when: true
+  become: true
+  tags: [kubernetes]
+
+- name: Ensure Netplan configuration file for metallb interface exists
+  ansible.builtin.copy:
+    dest: /etc/netplan/99-metallb.yaml
+    content: |
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          metallb:
+            dhcp4: no
+            addresses:
+              - "{{ kube_metallb_network }}"
+            optional: true
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  tags: [kubernetes]
+
+- name: Apply netplan configuration
+  ansible.builtin.command: netplan apply
+  changed_when: true
+  become: true
+  tags: [kubernetes]
+
+- name: Enable MetalLB addon with stable IP range on dummy interface "metallb"
+  ansible.builtin.command: "microk8s.enable metallb:{{ kube_metallb_ip_range }}"
+  changed_when: true
+  become: true
+  tags: [kubernetes]
+
+- name: Enable NVIDIA hardware (GPU and network) support in Microk8s
+  ansible.builtin.command: microk8s.enable nvidia
+  when: nvidia_container_toolkit | default(false)
+  changed_when: true
+  tags: [kubernetes]
+
+- name: Stop microk8s to save resources
+  ansible.builtin.command: microk8s stop
+  changed_when: true
+  tags: [kubernetes]

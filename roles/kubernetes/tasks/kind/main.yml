@@ -4,7 +4,7 @@
     path: /usr/local/bin
     state: directory
     mode: "0755"
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Set download URL based on architecture
   ansible.builtin.set_fact:
@@ -13,13 +13,13 @@
          else 'arm64' if ansible_architecture == 'aarch64'
          else '' }}
   when: ansible_system == "Linux"
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Fail if architecture is unsupported
   ansible.builtin.fail:
     msg: "Unsupported architecture: {{ ansible_architecture }}"
   when: kind_arch == ''
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Download kind binary
   ansible.builtin.get_url:
@@ -28,13 +28,13 @@
     mode: "0755"
     force: true
   become: true
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Retrieve latest stable kubectl version
-  ansible.builtin.shell: curl -L -s https://dl.k8s.io/release/stable.txt
+  ansible.builtin.command: curl -L -s https://dl.k8s.io/release/stable.txt
   register: kubectl_version_result
   changed_when: false
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Download kubectl binary
   ansible.builtin.get_url:
@@ -42,7 +42,7 @@
     dest: /usr/local/bin/kubectl
     mode: "0755"
   become: true
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Download kustomize tarball
   ansible.builtin.get_url:
@@ -50,19 +50,15 @@
     dest: /tmp/kustomize.tar.gz
     mode: "0644"
   become: true
-  tags: [docker]
+  tags: [kubernetes]
 
 - name: Extract kustomize binary
   ansible.builtin.unarchive:
     src: /tmp/kustomize.tar.gz
     dest: /usr/local/bin/
   become: true
-  tags: [docker]
+  tags: [kubernetes]
 
-
-- name: Install Kubeflow
-  ansible.builtin.include_tasks: kubeflow_kind.yml
-  when:
-    - kube_install_kubeflow | default(false)
-    - kubeflow_on_kind | default(false)
-  tags: [docker]
+- name: Install Helm
+  ansible.builtin.include_tasks: helm.yml
+  tags: [kubernetes]

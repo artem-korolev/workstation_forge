@@ -2,7 +2,3 @@
 - name: Install Docker (Universal)
   ansible.builtin.include_tasks: docker.yml
   tags: [docker]
-
-- name: Install and configure Kubernetes
-  ansible.builtin.include_tasks: kube.yml
-  tags: [docker]

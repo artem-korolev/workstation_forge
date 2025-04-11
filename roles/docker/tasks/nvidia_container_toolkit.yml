@@ -1,0 +1,28 @@
+---
+- name: Installing the NVIDIA Container Toolkit
+  ansible.builtin.package:
+    name:
+      - nvidia-container-toolkit
+    state: present
+  tags: [docker]
+
+- name: Configuring Docker to use NVIDIA Container Toolkit
+  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker --set-as-default
+  register: nvidia_ctk_status
+  changed_when: true
+  failed_when: nvidia_ctk_status.rc != 0
+  tags: [docker]
+
+- name: Set accept-nvidia-visible-devices-as-volume-mounts = true in /etc/nvidia-container-runtime/config.toml
+  ansible.builtin.command: sed -i '/accept-nvidia-visible-devices-as-volume-mounts/c\accept-nvidia-visible-devices-as-volume-mounts = true' /etc/nvidia-container-runtime/config.toml
+  register: set_accept_visible_devices_status
+  changed_when: true
+  failed_when: set_accept_visible_devices_status.rc != 0
+  tags: [docker]
+
+- name: Restart Docker service
+  ansible.builtin.service:
+    name: docker.service
+    enabled: true
+    state: restarted
+  tags: [docker]

@@ -4,7 +4,7 @@
   when: ansible_facts['distribution'] == "Ubuntu"
   tags: [docker]
 
-- name: Prepare Ubuntu system for Docker installation
+- name: Prepare Pop!_OS system for Docker installation
   ansible.builtin.include_tasks: ubuntu/docker_ubuntu.yml
   when: ansible_facts['distribution'] == "Pop!_OS"
   tags: [docker]
@@ -31,27 +31,9 @@
     state: present
   tags: [docker]
 
-- name: Installing the NVIDIA Container Toolkit
-  ansible.builtin.package:
-    name:
-      - nvidia-container-toolkit
-    state: present
+- name: Install NVIDIA Container Toolkit
+  ansible.builtin.include_tasks: nvidia_container_toolkit.yml
   when: nvidia_container_toolkit | default(false)
-  tags: [docker]
-
-- name: Configuring Docker to use NVIDIA Container Toolkit
-  ansible.builtin.command: nvidia-ctk runtime configure --runtime=docker
-  register: nvidia_ctk_status
-  changed_when: true
-  failed_when: nvidia_ctk_status.rc != 0
-  when: nvidia_container_toolkit | default(false)
-  tags: [docker]
-
-- name: Restart Docker service
-  ansible.builtin.service:
-    name: docker.service
-    enabled: true
-    state: restarted
   tags: [docker]
 
 - name: Add users to docker group

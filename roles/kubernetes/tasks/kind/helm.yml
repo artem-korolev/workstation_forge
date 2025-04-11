@@ -1,0 +1,47 @@
+---
+- name: Set download URL based on architecture
+  ansible.builtin.set_fact:
+    kind_arch: >-
+      {{ 'amd64' if ansible_architecture == 'x86_64'
+         else 'arm64' if ansible_architecture == 'aarch64'
+         else '' }}
+  when: ansible_system == "Linux"
+  tags: [kubernetes]
+
+- name: Download Helm tarball
+  ansible.builtin.get_url:
+    url: "https://get.helm.sh/helm-{{ kube_helm_version }}-linux-{{ kind_arch }}.tar.gz"
+    dest: /tmp/helm.tar.gz
+    mode: "0644"
+  become: true
+  tags: [kubernetes]
+
+- name: Ensure /tmp/helm exists
+  ansible.builtin.file:
+    path: /tmp/helm
+    state: directory
+    mode: "0755"
+  tags: [kubernetes]
+
+- name: Extract Helm binary
+  ansible.builtin.unarchive:
+    src: /tmp/helm.tar.gz
+    dest: /tmp/helm/
+    remote_src: true
+  become: true
+  tags: [kubernetes]
+
+- name: Move Helm binary to /usr/local/bin
+  ansible.builtin.copy:
+    src: /tmp/helm/linux-{{ kind_arch }}/helm
+    dest: /usr/local/bin/helm
+    mode: "0755"
+    remote_src: true
+  become: true
+  tags: [kubernetes]
+
+- name: Remove /tmp/helm directory
+  ansible.builtin.file:
+    path: /tmp/helm
+    state: absent
+  tags: [kubernetes]

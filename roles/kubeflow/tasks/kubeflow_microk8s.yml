@@ -6,7 +6,6 @@
   community.general.snap:
     name: juju
     state: present
-    classic: true
   tags: [docker]
 
 - name: Bootstrap Juju controller on MicroK8s
