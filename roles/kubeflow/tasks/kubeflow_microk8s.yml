@@ -1,42 +1,69 @@
-# -----------------------------------------------------------------
-#  OPTIONAL: Kubeflow Installation (Charmed Kubeflow with Juju)
-#  Control with a role variable: `install_kubeflow: true`
-# -----------------------------------------------------------------
-- name: Install Juju (Ubuntu-specific) for Kubeflow
-  community.general.snap:
-    name: juju
-    state: present
-  tags: [docker]
+---
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: kubeflow_prereqs.yml
+  tags: [kubeflow]
+
+#######################################################################
+# Now run Juju and Kubeflow tasks as the "kubeflow" user (non-root)   #
+#######################################################################
+- name: Add microk8s to juju as cloud
+  ansible.builtin.shell: microk8s config | juju add-k8s my-k8s --client
+  changed_when: true
+  tags: [kubeflow]
 
 - name: Bootstrap Juju controller on MicroK8s
-  ansible.builtin.command: juju bootstrap microk8s micro
-  tags: [docker]
+  ansible.builtin.command: juju bootstrap my-k8s kubeflow
+  changed_when: true
+  tags: [kubeflow]
 
-- name: Create a 'kubeflow' model on Juju
+- name: Add Juju model "kubeflow"
   ansible.builtin.command: juju add-model kubeflow
-  # 'changed_when' can be refined if you want idempotence checks
   changed_when: true
-  tags: [docker]
+  tags: [kubeflow]
 
-- name: "Deploy Kubeflow (Lightweight: kubeflow-lite)"
-  ansible.builtin.command: juju deploy kubeflow-lite
+- name: Deploy Kubeflow via Juju with trust enabled
+  ansible.builtin.command: juju deploy kubeflow --trust
   changed_when: true
-  tags: [docker]
+  tags: [kubeflow]
 
-# If you want an immediate status check, do it here:
+- name: Configure dex-auth static username
+  ansible.builtin.command: juju config dex-auth static-username=kubeflow
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Configure dex-auth static password
+  ansible.builtin.command: juju config dex-auth static-password=111
+  changed_when: true
+  tags: [kubeflow]
+
 - name: Wait for Kubeflow pods to become active
   ansible.builtin.command: juju status
   register: kubeflow_juju_status
   changed_when: false
   failed_when: kubeflow_juju_status.rc != 0
-  tags: [docker]
+  tags: [kubeflow]
 
+- name: Retrieve Istio IngressGateway LoadBalancer IP from MicroK8s
+  ansible.builtin.command: >
+    microk8s kubectl -n kubeflow get svc istio-ingressgateway-workload -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+  register: istio_ip
+  changed_when: false
+  become: true
+  retries: 100 # Retry up to 10 times
+  delay: 60 # Wait 60 seconds between retries
+  until: istio_ip.rc == 0 and (istio_ip.stdout | length) > 0
+  tags: [kubeflow]
+
+- name: Display Istio IngressGateway IP
+  ansible.builtin.debug:
+    msg: "Istio IngressGateway IP: {{ istio_ip.stdout }}"
+  tags: [kubeflow]
 # Example: instructions for port-forwarding to access Kubeflow Dashboard
 # (Typically you'd do this manually, but you can also script it.)
-- name: Display hint for accessing Kubeflow Dashboard
-  ansible.builtin.debug:
-    msg: >
-      To access Kubeflow Dashboard, run:
-      microk8s kubectl port-forward svc/istio-ingressgateway-workload -n kubeflow 8080:80
-      Then open http://localhost:8080
-  tags: [docker]
+# - name: Display hint for accessing Kubeflow Dashboard
+#   ansible.builtin.debug:
+#     msg: >
+#       To access Kubeflow Dashboard, run:
+#       microk8s kubectl port-forward svc/istio-ingressgateway-workload -n kubeflow 8080:80
+#       Then open http://localhost:8080
+#   tags: [kubeflow]

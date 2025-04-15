@@ -1,4 +1,8 @@
 ---
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: microk8s_prereqs.yml
+  tags: [kubernetes]
+
 - name: Ensure Snap is installed (Ubuntu-specific)
   ansible.builtin.apt:
     name: snapd
@@ -54,53 +58,18 @@
   changed_when: true
   tags: [kubernetes]
 
-- name: Disable existing MetalLB (if enabled)
-  ansible.builtin.command: microk8s.disable metallb
-  become: true
-  changed_when: true
+- name: Check if MetalLB is already enabled
+  ansible.builtin.command: microk8s status --format short
+  register: microk8s_status
+  changed_when: false
   tags: [kubernetes]
 
-- name: Ensure dummy interface "metallb" exists
-  ansible.builtin.shell: |
-    if ! ip link show metallb > /dev/null 2>&1; then
-      # Load the dummy module (create one dummy device)
-      modprobe dummy numdummies=1
-      # Rename the created dummy device (usually named "dummy0") to "metallb"
-      ip link set dummy0 name metallb
-    fi
-  changed_when: true
-  become: true
-  tags: [kubernetes]
-
-- name: Ensure Netplan configuration file for metallb interface exists
-  ansible.builtin.copy:
-    dest: /etc/netplan/99-metallb.yaml
-    content: |
-      network:
-        version: 2
-        renderer: networkd
-        ethernets:
-          metallb:
-            dhcp4: no
-            addresses:
-              - "{{ kube_metallb_network }}"
-            optional: true
-    owner: root
-    group: root
-    mode: '0644'
-  become: true
-  tags: [kubernetes]
-
-- name: Apply netplan configuration
-  ansible.builtin.command: netplan apply
-  changed_when: true
-  become: true
-  tags: [kubernetes]
-
-- name: Enable MetalLB addon with stable IP range on dummy interface "metallb"
+- name: Enable MetalLB
   ansible.builtin.command: "microk8s.enable metallb:{{ kube_metallb_ip_range }}"
-  changed_when: true
+  when: "'metallb: enabled' not in microk8s_status.stdout"
   become: true
+  register: result
+  changed_when: "'MetalLB is enabled' in result.stdout"
   tags: [kubernetes]
 
 - name: Enable NVIDIA hardware (GPU and network) support in Microk8s

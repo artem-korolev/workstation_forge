@@ -1,0 +1,7 @@
+---
+- name: Install Kubeflow
+  ansible.builtin.include_tasks: kubeflow_microk8s.yml
+  when:
+    - kube_install_kubeflow | default(false)
+    - kubeflow_on_microk8s | default(false)
+  tags: [kubeflow]

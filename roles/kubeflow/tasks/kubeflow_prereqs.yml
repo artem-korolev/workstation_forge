@@ -1,0 +1,47 @@
+---
+- name: Apply Kubeflow sysctl parameters immediately
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop: "{{ sysctl_parameters | dict2items }}"
+  tags: [kubeflow]
+
+- name: Start microk8s, if stopped
+  ansible.builtin.command: microk8s start
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Wait for MicroK8s to be ready
+  ansible.builtin.command: microk8s status --wait-ready
+  register: microk8s_status
+  changed_when: false
+  failed_when: microk8s_status.rc != 0
+  tags: [kubeflow]
+
+- name: Enable DNS
+  ansible.builtin.command: microk8s.enable dns
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Enable hostpath-storage
+  ansible.builtin.command: microk8s.enable hostpath-storage
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Enable RBAC
+  ansible.builtin.command: microk8s.enable rbac
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Enable Nvidia
+  ansible.builtin.command: microk8s.enable nvidia
+  changed_when: true
+  tags: [kubeflow]
+
+- name: Install Juju (Ubuntu-specific) for Kubeflow
+  community.general.snap:
+    name: juju
+    state: present
+  tags: [kubeflow]

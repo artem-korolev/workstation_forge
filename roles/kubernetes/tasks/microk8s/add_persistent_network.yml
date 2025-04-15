@@ -1,0 +1,127 @@
+---
+- name: Ensure dummy kernel module is loaded on boot
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/dummy.conf
+    content: "dummy\n"
+    mode: "0644"
+  become: true
+  tags: [kubernetes]
+
+- name: Load dummy kernel module now
+  community.general.modprobe:
+    name: dummy
+    params: numdummies=1
+    state: present
+  become: true
+  tags: [kubernetes]
+
+- name: Create systemd .netdev file for dummy0
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/10-dummy0.netdev
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [NetDev]
+      Name=dummy0
+      Kind=dummy
+  become: true
+  tags: [kubernetes]
+
+- name: Create systemd .network file for dummy0
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/10-dummy0.network
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Match]
+      Name=dummy0
+
+      [Link]
+      ConfigureWithoutCarrier=yes
+
+      [Network]
+      LinkLocalAddressing=no
+  become: true
+  tags: [kubernetes]
+
+- name: Create systemd .netdev for bridge "metallb"
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/20-metallb.netdev
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [NetDev]
+      Name=metallb
+      Kind=bridge
+  become: true
+  tags: [kubernetes]
+
+- name: Create systemd .network for bridge "metallb"
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/20-metallb.network
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Match]
+      Name=metallb
+
+      [Link]
+      ConfigureWithoutCarrier=yes
+      RequiredForOnline=no
+
+      [Network]
+      Address={{ kube_metallb_network }}
+      IPForward=yes
+  become: true
+  tags: [kubernetes]
+
+- name: Attach dummy0 to bridge metallb
+  ansible.builtin.copy:
+    dest: /etc/systemd/network/30-dummy0-bridge.network
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Match]
+      Name=dummy0
+
+      [Network]
+      Bridge=metallb
+  become: true
+  tags: [kubernetes]
+
+- name: Mark dummy0 & metallb unmanaged for NetworkManager
+  copy:
+    dest: /etc/NetworkManager/conf.d/99-unmanaged-metallb.conf
+    mode: "0644"
+    content: |
+      [keyfile]
+      unmanaged-devices=interface-name:dummy0;interface-name:metallb
+  become: true
+  tags: [kubernetes]
+
+- name: Reload NetworkManager
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: restarted
+  become: true
+  tags: [kubernetes]
+
+- name: Ensure systemd-networkd is enabled and running
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: started
+    enabled: true
+  become: true
+  tags: [kubernetes]
+
+- name: Restart systemd-networkd to apply new configs
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: restarted
+  become: true
+  tags: [kubernetes]

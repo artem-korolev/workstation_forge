@@ -1,0 +1,17 @@
+---
+- name: Ensure networking kernel modules are loaded & persistent
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  loop: "{{ kernel_modules }}"
+  tags: [kubernetes]
+
+- name: Persist sysctl settings required by CNI / kube‑proxy
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: true
+  loop: "{{ sysctl_parameters | dict2items }}"
+  tags: [kubernetes]

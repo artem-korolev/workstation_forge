@@ -49,13 +49,25 @@ kube_kind_version: v0.27.0
 kube_kustomize_version: v5.6.0
 kube_helm_version: v3.17.3
 kube_install_kubeflow: true
-kube_kind: true
+kube_kind: false
 kube_microk8s: true
-kube_metallb_network: 10.10.10.1/24
 kube_metallb_ip_range: 10.10.10.240-10.10.10.254
-
 
 # Kubeflow
 kubeflow_version: v1.10.0
 kubeflow_on_kind: false
 kubeflow_on_microk8s: true
+
+# Parameters required by Kubeflow components (extend as needed)
+sysctl_parameters:
+  fs.inotify.max_user_instances: 1280
+  fs.inotify.max_user_watches: 655360
+  net.ipv4.ip_forward: "1"
+  net.bridge.bridge-nf-call-iptables: "1"
+  net.netfilter.nf_conntrack_max: "131072"
+
+
+kernel_modules:
+  - br_netfilter
+  - vxlan
+  - nf_conntrack

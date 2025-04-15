@@ -46,3 +46,4 @@
     - vnc_clients
     - crawlers
     - kubernetes
+    - kubeflow
