@@ -8,11 +8,7 @@
     - entr
 
 - name: Install watchman
-  ansible.builtin.package:
-    name: watchman
-    state: present
-  when: ansible_facts['distribution'] == "Ubuntu"
+  ansible.builtin.include_tasks: watchman.yml
   tags:
     - file_monitoring_packages
     - watchman
-# TODO: watchman package is broken in Fedora; compile from sources

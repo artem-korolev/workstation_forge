@@ -1,0 +1,87 @@
+- name: Remove any previously downloaded Watchman binaries
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: absent
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Create a clean directory for Watchman binaries
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: directory
+    mode: "0755"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Download Watchman pre-built binary zip
+  get_url:
+    url: "https://github.com/facebook/watchman/releases/download/v{{ watchman_version }}/watchman-v{{ watchman_version }}-linux.zip"
+    dest: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux.zip"
+    mode: "0644"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Extract Watchman pre-built binaries
+  unarchive:
+    src: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux.zip"
+    dest: "{{ watchman_build_dir }}"
+    remote_src: yes
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Ensure /usr/local/bin exists
+  file:
+    path: /usr/local/bin
+    state: directory
+    mode: "0755"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Ensure /usr/local/lib exists
+  file:
+    path: /usr/local/lib
+    state: directory
+    mode: "0755"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Ensure /usr/local/var/run/watchman exists
+  file:
+    path: /usr/local/var/run/watchman
+    state: directory
+    mode: "2777"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Copy Watchman binaries to /usr/local/bin
+  shell: |
+    cp "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/bin/"* /usr/local/bin/
+  args:
+    creates: /usr/local/bin/watchman
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Copy Watchman libraries to /usr/local/lib
+  shell: |
+    cp "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/lib/"* /usr/local/lib/
+  args:
+    creates: /usr/local/lib/libwatchman.so
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Cleanup Watchman artifacts
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: absent
+  tags:
+    - file_monitoring_packages
+    - watchman

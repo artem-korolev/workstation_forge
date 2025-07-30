@@ -71,3 +71,8 @@ kernel_modules:
   - br_netfilter
   - vxlan
   - nf_conntrack
+
+# Override this to install a different Watchman release
+watchman_version: 2025.07.28.00
+# Temporary build directory; cleaned up after install
+watchman_build_dir: /tmp/watchman_src

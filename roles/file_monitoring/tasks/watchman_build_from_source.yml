@@ -1,0 +1,68 @@
+- name: Remove any previously downloaded Watchman source
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: absent
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Create a clean build directory
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: directory
+    mode: "0755"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Download Watchman source tarball
+  get_url:
+    url: "https://github.com/facebook/watchman/archive/v{{ watchman_version }}.tar.gz"
+    dest: "{{ watchman_build_dir }}/watchman.tar.gz"
+    mode: "0644"
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Extract Watchman source
+  unarchive:
+    src: "{{ watchman_build_dir }}/watchman.tar.gz"
+    dest: "{{ watchman_build_dir }}"
+    remote_src: yes
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+# - name: Ensure build dependencies are installed
+#   apt:
+#     name:
+#       - autoconf
+#       - automake
+#       - build-essential
+#       - libssl-dev
+#       - python3-dev
+#       - libtool
+#       - pkg-config
+#     state: present
+#     update_cache: yes
+
+- name: Build and install Watchman from source
+  shell: |
+    ./autogen.sh
+    ./configure
+    make
+    make install
+  args:
+    chdir: "{{ watchman_build_dir }}/watchman-{{ watchman_version }}"
+    creates: /usr/local/bin/watchman
+  tags:
+    - file_monitoring_packages
+    - watchman
+
+- name: Cleanup Watchman build artifacts
+  file:
+    path: "{{ watchman_build_dir }}"
+    state: absent
+  tags:
+    - file_monitoring_packages
+    - watchman
