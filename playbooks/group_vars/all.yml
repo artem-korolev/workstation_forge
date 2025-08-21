@@ -25,7 +25,7 @@ hibernate_mapper_device: "/dev/disk/by-label/{{ crypthibernate_name }}"
 # course your own needs.
 # You can install multiply LLVM versions
 llvm_versions:
-  - 21
+  - 22
 
 jdk_versions:
   - 21
