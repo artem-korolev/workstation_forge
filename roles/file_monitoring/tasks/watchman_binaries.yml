@@ -117,8 +117,3 @@
     path: "{{ watchman_build_dir }}"
     state: absent
   tags: [file_monitoring_packages, watchman]
-
-# handlers/main.yml
-- name: Run ldconfig
-  ansible.builtin.command: ldconfig
-  listen: Run ldconfig

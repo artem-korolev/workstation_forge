@@ -1,0 +1,3 @@
+- name: Run ldconfig
+  ansible.builtin.command: ldconfig
+  listen: Run ldconfig
