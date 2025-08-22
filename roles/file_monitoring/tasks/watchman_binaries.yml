@@ -3,6 +3,7 @@
   ansible.builtin.set_fact:
     watchman_system_libdir: "{{ watchman_system_libdir_map.get(ansible_facts.os_family, '/usr/lib') }}"
     watchman_pkg_list: "{{ watchman_dep_packages.get(ansible_facts.os_family, []) }}"
+  tags: [file_monitoring_packages, watchman]
 
 - name: Remove any previously downloaded Watchman binaries
   ansible.builtin.file:
