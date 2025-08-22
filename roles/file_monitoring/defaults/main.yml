@@ -1,0 +1,54 @@
+watchman_build_dir: "/tmp/watchman"
+# Map system libdir per OS family (extend if needed)
+watchman_system_libdir_map:
+  Debian: "/usr/lib/x86_64-linux-gnu"
+  Ubuntu: "/usr/lib/x86_64-linux-gnu"
+  RedHat: "/usr/lib64"
+  Rocky: "/usr/lib64"
+  AlmaLinux: "/usr/lib64"
+  Fedora: "/usr/lib64"
+
+# Packages that provide the required shared libs
+watchman_dep_packages:
+  Debian:
+    - libevent-2.1-7
+    - libgflags2.2
+    - liblzma5
+    - libsnappy1v5
+    - libunwind8
+    - libxxhash0
+  Ubuntu:
+    - libevent-2.1-7
+    - libgflags2.2
+    - liblzma5
+    - libsnappy1v5
+    - libunwind8
+    - libxxhash0
+  RedHat:
+    - libevent
+    - gflags
+    - xz-libs
+    - snappy
+    - libunwind
+    - xxhash-libs
+  Rocky:
+    - libevent
+    - gflags
+    - xz-libs
+    - snappy
+    - libunwind
+    - xxhash-libs
+  AlmaLinux:
+    - libevent
+    - gflags
+    - xz-libs
+    - snappy
+    - libunwind
+    - xxhash-libs
+  Fedora:
+    - libevent
+    - gflags
+    - xz-libs
+    - snappy
+    - libunwind
+    - xxhash-libs

@@ -1,87 +1,124 @@
+# tasks/main.yml
+- name: Set convenience facts
+  ansible.builtin.set_fact:
+    watchman_system_libdir: "{{ watchman_system_libdir_map.get(ansible_facts.os_family, '/usr/lib') }}"
+    watchman_pkg_list: "{{ watchman_dep_packages.get(ansible_facts.os_family, []) }}"
+
 - name: Remove any previously downloaded Watchman binaries
-  file:
+  ansible.builtin.file:
     path: "{{ watchman_build_dir }}"
     state: absent
-  tags:
-    - file_monitoring_packages
-    - watchman
+  tags: [file_monitoring_packages, watchman]
 
 - name: Create a clean directory for Watchman binaries
-  file:
+  ansible.builtin.file:
     path: "{{ watchman_build_dir }}"
     state: directory
     mode: "0755"
-  tags:
-    - file_monitoring_packages
-    - watchman
+  tags: [file_monitoring_packages, watchman]
 
 - name: Download Watchman pre-built binary zip
-  get_url:
+  ansible.builtin.get_url:
     url: "https://github.com/facebook/watchman/releases/download/v{{ watchman_version }}/watchman-v{{ watchman_version }}-linux.zip"
     dest: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux.zip"
     mode: "0644"
-  tags:
-    - file_monitoring_packages
-    - watchman
+  tags: [file_monitoring_packages, watchman]
 
 - name: Extract Watchman pre-built binaries
-  unarchive:
+  ansible.builtin.unarchive:
     src: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux.zip"
     dest: "{{ watchman_build_dir }}"
-    remote_src: yes
-  tags:
-    - file_monitoring_packages
-    - watchman
+    remote_src: true
+  tags: [file_monitoring_packages, watchman]
 
-- name: Ensure /usr/local/bin exists
-  file:
-    path: /usr/local/bin
+- name: Ensure target dirs exist
+  ansible.builtin.file:
+    path: "{{ item }}"
     state: directory
     mode: "0755"
-  tags:
-    - file_monitoring_packages
-    - watchman
+  loop:
+    - /usr/local/bin
+    - /usr/local/lib
+    - /usr/local/var/run/watchman
+  tags: [file_monitoring_packages, watchman]
 
-- name: Ensure /usr/local/lib exists
-  file:
-    path: /usr/local/lib
-    state: directory
-    mode: "0755"
-  tags:
-    - file_monitoring_packages
-    - watchman
-
-- name: Ensure /usr/local/var/run/watchman exists
-  file:
+- name: Make /usr/local/var/run/watchman world-writable sticky
+  ansible.builtin.file:
     path: /usr/local/var/run/watchman
-    state: directory
     mode: "2777"
-  tags:
-    - file_monitoring_packages
-    - watchman
+    state: directory
+  tags: [file_monitoring_packages, watchman]
 
-- name: Copy Watchman binaries to /usr/local/bin
-  shell: |
-    cp "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/bin/"* /usr/local/bin/
-  args:
-    creates: /usr/local/bin/watchman
-  tags:
-    - file_monitoring_packages
-    - watchman
+# ---- install system packages that provide the needed libs
+- name: Install Watchman runtime library dependencies
+  ansible.builtin.package:
+    name: "{{ watchman_pkg_list }}"
+    state: present
+  tags: [file_monitoring_packages, watchman]
 
-- name: Copy Watchman libraries to /usr/local/lib
-  shell: |
-    cp "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/lib/"* /usr/local/lib/
-  args:
-    creates: /usr/local/lib/libwatchman.so
-  tags:
-    - file_monitoring_packages
-    - watchman
+# ---- copy only bin/*
+- name: Find extracted watchman binaries
+  ansible.builtin.find:
+    paths: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/bin"
+    file_type: file
+  register: watchman_bin_files
+  tags: [file_monitoring_packages, watchman]
+
+- name: Install Watchman binaries into /usr/local/bin
+  ansible.builtin.copy:
+    src: "{{ item.path }}"
+    dest: "/usr/local/bin/{{ item.path | basename }}"
+    mode: "0755"
+    remote_src: true
+  loop: "{{ watchman_bin_files.files }}"
+  notify: Run ldconfig
+  tags: [file_monitoring_packages, watchman]
+
+# ---- copy ONLY libglog.so.0 from archive into /usr/local/lib
+- name: Copy libglog.so.0 from archive to /usr/local/lib
+  ansible.builtin.copy:
+    src: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/lib/libglog.so.0"
+    dest: "/usr/local/lib/libglog.so.0"
+    mode: "0644"
+    remote_src: true
+  notify: Run ldconfig
+  tags: [file_monitoring_packages, watchman]
+
+# ---- ensure /usr/local/lib is on ld.so path
+- name: Ensure /etc/ld.so.conf.d/local.conf includes /usr/local/lib
+  ansible.builtin.copy:
+    dest: /etc/ld.so.conf.d/local.conf
+    content: "/usr/local/lib\n"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Run ldconfig
+  tags: [file_monitoring_packages, watchman]
+
+# ---- create requested symlinks to system libs
+- name: Create compatibility symlinks in /usr/local/lib -> {{ watchman_system_libdir }}
+  ansible.builtin.file:
+    src: "{{ watchman_system_libdir }}/{{ item }}"
+    dest: "/usr/local/lib/{{ item }}"
+    state: link
+    force: true
+  loop:
+    - "liblzma.so.5"
+    - "libgflags.so.2.2"
+    - "libevent-2.1.so.7"
+    - "libsnappy.so.1"
+    - "libunwind.so.8"
+    - "libxxhash.so.0"
+  notify: Run ldconfig
+  tags: [file_monitoring_packages, watchman]
 
 - name: Cleanup Watchman artifacts
-  file:
+  ansible.builtin.file:
     path: "{{ watchman_build_dir }}"
     state: absent
-  tags:
-    - file_monitoring_packages
-    - watchman
+  tags: [file_monitoring_packages, watchman]
+
+# handlers/main.yml
+- name: Run ldconfig
+  ansible.builtin.command: ldconfig
+  listen: Run ldconfig

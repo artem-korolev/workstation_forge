@@ -8,7 +8,7 @@
     - entr
 
 - name: Install watchman
-  ansible.builtin.include_tasks: watchman.yml
+  ansible.builtin.include_tasks: watchman_binaries.yml
   tags:
     - file_monitoring_packages
     - watchman
