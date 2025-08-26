@@ -35,6 +35,11 @@
       - pkg-config
       - libssl-dev
       - htop
+      - atop
+      - nload
+      - iftop
+      - nvtop
+      - btop
       - apt-transport-https
       - synaptic
     state: present
