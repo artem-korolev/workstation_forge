@@ -14,7 +14,12 @@
 
 - name: Configure GRUB and initramfs to support hibernate (you must have partition with 'hibernate' label set large enough to store your RAM)
   ansible.builtin.include_tasks: configure_grub_and_initramfs.yml
-  when: ansible_facts['distribution'] == "Ubuntu"
+  when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu
 
 - name: Force hibernate on critical battery power (UPower cannot pass `--ignore-inhibitors` flag to hibernate service unfortunately, so doing it manually)
   ansible.builtin.include_tasks: force_hibernate_service.yml
+  when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu
+
+- name: Add battery guard service at boot time to prevent system booting, when battery is low
+  ansible.builtin.include_tasks: battery_boot_guard.yml
+  when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu

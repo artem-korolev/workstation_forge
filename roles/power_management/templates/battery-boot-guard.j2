@@ -1,0 +1,73 @@
+#!/bin/sh
+# Abort boot/resume on low battery (initramfs-tools / BusyBox environment)
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+  prereqs) prereqs; exit 0 ;;
+esac
+
+# ---- settings
+THRESHOLD={{ battery_critical_level }}   # percent; change to taste
+
+# Optional cmdline toggles: battery_guard=off|force
+CMDLINE="$(cat /proc/cmdline 2>/dev/null)"
+case "$CMDLINE" in
+  *battery_guard=off*)  exit 0 ;;    # skip check once
+  *battery_guard=force*) FORCE_LOW=1 ;;
+esac
+
+# ---- detect external power (AC/USB/…)
+is_mains_online() {
+  for d in /sys/class/power_supply/*; do
+    [ -d "$d" ] || continue
+    [ -f "$d/type" ] || continue
+    # Any non-Battery supply with "online"=1 counts as external power
+    if [ "$(cat "$d/type")" != "Battery" ] && [ -f "$d/online" ] && [ "$(cat "$d/online")" = "1" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ---- read one battery capacity (first Battery found)
+read_capacity() {
+  for d in /sys/class/power_supply/*; do
+    [ -d "$d" ] || continue
+    [ -f "$d/type" ] || continue
+    if [ "$(cat "$d/type")" = "Battery" ] && [ -f "$d/capacity" ]; then
+      cat "$d/capacity"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Mains power? allow boot/resume.
+if is_mains_online; then
+  exit 0
+fi
+
+# No mains; get capacity.
+if [ -n "$FORCE_LOW" ]; then
+  CAP=0
+else
+  CAP="$(read_capacity || echo 100)"
+fi
+
+# OK if above threshold.
+[ "$CAP" -gt "$THRESHOLD" ] && exit 0
+
+# Too low: skip resume and power off early.
+echo "battery-guard: Battery ${CAP}% < ${THRESHOLD}%. Stopping boot." > /dev/kmsg
+
+# Prevent resume attempt for THIS boot only (image stays on disk):
+echo 0 > /sys/power/resume 2>/dev/null || true
+
+# Try clean poweroff; fall back to SysRq.
+if command -v poweroff >/dev/null 2>&1; then
+  poweroff -f
+fi
+echo o > /proc/sysrq-trigger 2>/dev/null || true
+sleep 5
+reboot -f

@@ -1,0 +1,15 @@
+---
+# Rebuild initramfs and verify presence of the guard script
+- name: Rebuild initramfs for battery guard
+  listen: Battery guard changed
+  ansible.builtin.command:
+    cmd: "update-initramfs -u -k {{ battery_guard_rebuild_kernels }}"
+  changed_when: true
+
+- name: Verify battery guard in current initramfs
+  listen: Battery guard changed
+  ansible.builtin.command:
+    cmd: bash -lc 'lsinitramfs /boot/initrd.img-$(uname -r) | grep -F 10-battery-guard'
+  register: battery_guard_verify_result
+  changed_when: false
+  failed_when: battery_guard_verify_result.rc != 0

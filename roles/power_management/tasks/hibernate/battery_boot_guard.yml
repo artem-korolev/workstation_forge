@@ -1,0 +1,38 @@
+---
+- name: Ensure initramfs-tools is installed (Ubuntu/Debian)
+  ansible.builtin.package:
+    name: initramfs-tools
+    state: present
+  when: ansible_facts.pkg_mgr == "apt"
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Ensure init-top directory exists
+  ansible.builtin.file:
+    path: /etc/initramfs-tools/scripts/init-top
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Install battery boot guard script into initramfs
+  ansible.builtin.template:
+    src: battery-boot-guard.j2
+    dest: /etc/initramfs-tools/scripts/init-top/10-battery-guard
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Battery guard changed
+  tags: [power_management, battery_guard, initramfs]
+
+# Rebuild all kernels by default; override with:
+#   battery_guard_rebuild_kernels: "{{ ansible_kernel }}"   # current only
+- name: Set kernel list for initramfs rebuild
+  ansible.builtin.set_fact:
+    battery_guard_rebuild_kernels: "{{ battery_guard_rebuild_kernels | default('all') }}"
+  tags: [power_management, battery_guard, initramfs]
+
+# Optional: run the handler immediately so verification happens in this role
+- name: Flush handlers to rebuild/verify initramfs now
+  ansible.builtin.meta: flush_handlers
+  tags: [power_management, battery_guard, initramfs]
