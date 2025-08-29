@@ -79,7 +79,7 @@
 - name: Copy libglog.so.0 from archive to /usr/local/lib
   ansible.builtin.copy:
     src: "{{ watchman_build_dir }}/watchman-v{{ watchman_version }}-linux/lib/libglog.so.0"
-    dest: "/usr/local/lib/libglog.so.0"
+    dest: /usr/local/lib/libglog.so.0
     mode: "0644"
     remote_src: true
   notify: Run ldconfig
@@ -104,12 +104,12 @@
     state: link
     force: true
   loop:
-    - "liblzma.so.5"
-    - "libgflags.so.2.2"
-    - "libevent-2.1.so.7"
-    - "libsnappy.so.1"
-    - "libunwind.so.8"
-    - "libxxhash.so.0"
+    - liblzma.so.5
+    - libgflags.so.2.2
+    - libevent-2.1.so.7
+    - libsnappy.so.1
+    - libunwind.so.8
+    - libxxhash.so.0
   notify: Run ldconfig
   tags: [file_monitoring_packages, watchman]
 
