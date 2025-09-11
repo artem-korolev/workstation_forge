@@ -6,8 +6,6 @@
 
 - name: Configure Power Management
   import_playbook: configure_power_management.yml
-- name: Setup Users
-  import_playbook: workstation_users.yml
 - name: Install System Software
   import_playbook: workstation_system.yml
 - name: Developer Software Packages
