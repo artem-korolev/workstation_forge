@@ -1,5 +1,5 @@
 ---
-battery_critical_level: 8
+battery_critical_level: 15
 battery_level_check_interval: 30 # in seconds
 
 users:
