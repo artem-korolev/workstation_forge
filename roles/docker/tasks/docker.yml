@@ -31,10 +31,10 @@
     state: present
   tags: [docker]
 
-- name: Install NVIDIA Container Toolkit
-  ansible.builtin.include_tasks: nvidia_container_toolkit.yml
-  when: nvidia_container_toolkit | default(false)
-  tags: [docker]
+# - name: Install NVIDIA Container Toolkit
+#   ansible.builtin.include_tasks: nvidia_container_toolkit.yml
+#   when: nvidia_container_toolkit | default(false)
+#   tags: [docker]
 
 - name: Add users to docker group
   ansible.builtin.user:

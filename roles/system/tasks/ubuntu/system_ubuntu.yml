@@ -42,6 +42,7 @@
       - btop
       - apt-transport-https
       - synaptic
+      - gnupg
     state: present
 
 - name: Install proprietary codecs and fonts

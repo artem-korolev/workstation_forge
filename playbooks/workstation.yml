@@ -10,7 +10,7 @@
   import_playbook: workstation_system.yml
 - name: Developer Software Packages
   import_playbook: workstation_software.yml
-- name: Security Audit Software
-  import_playbook: software_security_audit.yml
+#- name: Security Audit Software
+#  import_playbook: software_security_audit.yml
 - name: Secure settings for Workstation
   import_playbook: secure_workstation.yml

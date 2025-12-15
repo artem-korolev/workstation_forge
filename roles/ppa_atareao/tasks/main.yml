@@ -1,5 +1,27 @@
 ---
-- name: Add Atareao Team PPA
+- name: Ensure APT keyrings dir exists
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Download Atareao Team PPA signing key (dearmored)
+  ansible.builtin.get_url:
+    url: "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x25402D509B042DD9"
+    dest: /etc/apt/keyrings/atareao-telegram.gpg
+    mode: "0644"
+
+- name: Add Atareao Team Telegram PPA (signed-by)
   ansible.builtin.apt_repository:
-    repo: ppa:atareao/telegram
+    repo: "deb [signed-by=/etc/apt/keyrings/atareao-telegram.gpg] http://ppa.launchpad.net/atareao/telegram/ubuntu {{ ansible_facts.distribution_release }} main"
+    filename: atareao-telegram
     state: present
+    update_cache: true
+
+- name: Remove legacy apt-key entry if it exists
+  ansible.builtin.command: "apt-key del 25402D509B042DD9"
+  register: _aptkey_del
+  changed_when: "'OK' in _aptkey_del.stdout"
+  failed_when: false

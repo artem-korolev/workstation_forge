@@ -4,6 +4,16 @@
   when: ansible_facts['distribution'] == "Fedora"
   tags: [steam]
 
+- name: Install i386 Gstreamer plugins
+  ansible.builtin.package:
+    name:
+      - gstreamer1.0-plugins-good:i386
+      - gstreamer1.0-plugins-bad:i386
+      - gstreamer1.0-plugins-ugly:i386
+      - gstreamer1.0-libav:i386
+    state: present
+  tags: [steam]
+
 - name: Install Steam Client
   ansible.builtin.package:
     name:

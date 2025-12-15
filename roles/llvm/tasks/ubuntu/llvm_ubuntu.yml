@@ -8,7 +8,7 @@
 - name: Add LLVM binary repository
   ansible.builtin.apt_repository:
     repo: >
-      deb [signed-by=/etc/apt/keyrings/llvm-archive-keyring.gpg]
+      deb [arch=amd64 signed-by=/etc/apt/keyrings/llvm-archive-keyring.gpg]
       http://apt.llvm.org/{{ ansible_facts.distribution_release }}/
       llvm-toolchain-{{ ansible_facts.distribution_release }} main
     state: present
@@ -36,9 +36,9 @@
       - clang-{{ item }}
       - clangd-{{ item }}
       - libc++-{{ item }}-dev
-      - libc++1-{{ item }}
+      - libc++1
       - libc++abi-{{ item }}-dev
-      - libc++abi1-{{ item }}
+#      - libc++abi1-{{ item }}
       - libclang-{{ item }}-dev
       - libclang-common-{{ item }}-dev
       - libclang-cpp{{ item }}-dev

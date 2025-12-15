@@ -9,13 +9,13 @@
     #     state: stopped
     #     enabled: false
 
-    - name: Restrict Postfix to localhost only
-      ansible.builtin.lineinfile:
-        path: /etc/postfix/main.cf
-        regexp: ^#?inet_interfaces =
-        line: inet_interfaces = loopback-only
-        backup: true
-      notify: Restart Postfix
+    # - name: Restrict Postfix to localhost only
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/postfix/main.cf
+    #     regexp: ^#?inet_interfaces =
+    #     line: inet_interfaces = loopback-only
+    #     backup: true
+    #   notify: Restart Postfix
 
     # - name: Ensure CUPS is disabled and stopped
     #   ansible.builtin.service:
@@ -42,13 +42,13 @@
     #     state: stopped
     #     enabled: false
 
-    - name: Restrict PostgreSQL to listen on localhost only
-      ansible.builtin.lineinfile:
-        path: /etc/postgresql/16/main/postgresql.conf
-        regexp: ^#?listen_addresses =
-        line: listen_addresses = 'localhost'
-        backup: true
-      notify: Restart PostgreSQL
+    # - name: Restrict PostgreSQL to listen on localhost only
+    #   ansible.builtin.lineinfile:
+    #     path: /etc/postgresql/16/main/postgresql.conf
+    #     regexp: ^#?listen_addresses =
+    #     line: listen_addresses = 'localhost'
+    #     backup: true
+    #   notify: Restart PostgreSQL
 
     - name: Ensure MiniDLNA is disabled and stopped
       ansible.builtin.service:

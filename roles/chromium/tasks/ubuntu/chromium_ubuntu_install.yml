@@ -6,9 +6,9 @@
     return_content: true
   register: page_content
 
-- name: Find all .deb files for 'xia' (Ubuntu 24.04 LTS)
+- name: Find all .deb files for 'faye' (Ubuntu 24.04 LTS)
   ansible.builtin.set_fact:
-    chromium_versions_list: "{{ page_content.content | regex_findall('chromium_(\\d+[\\.\\d+]*)~linuxmint1\\+xia_amd64\\.deb') }}"
+    chromium_versions_list: "{{ page_content.content | regex_findall('chromium_(\\d+[\\.\\d+]*)~linuxmint1\\+faye_amd64\\.deb') }}"
 
 - name: Debug the chromium_versions_list
   ansible.builtin.debug:
@@ -24,7 +24,7 @@
 
 - name: Construct the download URL for the latest deb package
   ansible.builtin.set_fact:
-    latest_deb_url: http://packages.linuxmint.com/pool/upstream/c/chromium/chromium_{{ latest_version }}~linuxmint1+xia_amd64.deb
+    latest_deb_url: http://packages.linuxmint.com/pool/upstream/c/chromium/chromium_{{ latest_version }}~linuxmint1+faye_amd64.deb
 
 - name: Debug the latest .deb URL
   ansible.builtin.debug:

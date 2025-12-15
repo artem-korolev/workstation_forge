@@ -41,9 +41,9 @@
     - warp_terminal
     - text_tools
     - cuda
-    - prime_run
+    # - prime_run
     - steam
     - vnc_clients
     - crawlers
-    - kubernetes
-    - kubeflow
+    # - kubernetes
+    # - kubeflow

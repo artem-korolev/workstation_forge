@@ -34,7 +34,7 @@ jdk_versions:
 sam_cli_zip_url: https://github.com/aws/aws-sam-cli/releases/latest/download/aws-sam-cli-linux-x86_64.zip
 
 # LunarG Vulkan SDK
-vulkan_sdk_version: 1.4.304.1
+vulkan_sdk_version: 1.4.335.0
 vulkan_sdk_install_dir: /opt/vulkansdk
 
 rpm_based_pkg_managers: [dnf, dnf5, yum, zypper]
