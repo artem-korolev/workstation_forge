@@ -345,5 +345,7 @@
     "zpool",
     "zynaddsubfx",
     "zypper"
-  ]
+  ],
+  "python-envs.pythonProjects": [],
+  "ansible.python.interpreterPath": "/workspace/.venv/bin/python"
 }

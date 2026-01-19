@@ -1,0 +1,31 @@
+{
+  "name": "softwaretech.infra.workstation_forge",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-containers",
+        "openai.chatgpt",
+        "trunk.io",
+        "redhat.ansible"
+      ]
+    }
+  },
+  "forwardPorts": [],
+  "postStartCommand": "",
+  "containerUser": "vscode",
+  "runArgs": ["--userns=keep-id"],
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,Z",
+  "workspaceFolder": "/workspace",
+  "mounts": [
+    "source=${localWorkspaceFolderBasename}-home,target=/home/vscode,type=volume"
+  ],
+  "postCreateCommand": "bash -lc 'bash /workspace/.devcontainer/postCreate.sh'"
+}
