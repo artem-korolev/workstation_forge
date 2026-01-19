@@ -5,4 +5,5 @@
   gather_facts: true
   roles:
     - system
+    - file_systems
     - prime_run
