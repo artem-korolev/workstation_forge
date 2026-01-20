@@ -1,0 +1,16 @@
+---
+# TODO: This is distro specific. In Fedora it is configured by driver
+#
+# - name: Setup and configure UPower
+#   ansible.builtin.include_tasks: configure_nvidia_suspend_settings.yml
+
+# - name: Setup hibernate (create swapfile and configure SELinux)
+#   ansible.builtin.include_tasks: setup_hibernate.yml
+
+- name: Force hibernate on critical battery power (UPower cannot pass `--ignore-inhibitors` flag to hibernate service unfortunately, so doing it manually)
+  ansible.builtin.include_tasks: force_hibernate_service.yml
+  vars:
+    hibernate_mapper_device: /swap/hibernate
+
+# - name: Add battery guard service at boot time to prevent system booting, when battery is low
+#   ansible.builtin.include_tasks: battery_boot_guard.yml

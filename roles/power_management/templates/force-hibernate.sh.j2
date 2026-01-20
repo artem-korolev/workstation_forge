@@ -35,12 +35,6 @@ if [ "${BATTERY_LEVEL:-0}" -le "${CRITICAL_THRESHOLD:-0}" ]; then
         fi
     fi
 
-    logger -t force-hibernate "Memory usage after swapon:"
-    free -h 2>&1 | logger -t force-hibernate
-    lsblk {{ hibernate_mapper_device }} 2>&1 | logger -t force-hibernate
-    swapon --show 2>&1 | logger -t force-hibernate
-
-
     # The system will hibernate now
     logger -t force-hibernate "Invoking systemctl hibernate..."
     systemctl hibernate --force --ignore-inhibitors 2>&1 | logger -t force-hibernate

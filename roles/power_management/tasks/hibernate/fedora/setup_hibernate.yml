@@ -1,0 +1,73 @@
+---
+- name: Check if /swap subvolume already exists
+  ansible.builtin.stat:
+    path: /swap
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: swap_subvolume
+
+- name: Check if /swap/hibernate swapfile already exists
+  ansible.builtin.stat:
+    path: /swap/hibernate
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: swapfile
+
+- name: Fail if swap subvolume or swapfile already exists
+  ansible.builtin.fail:
+    msg: The /swap subvolume or /swap/hibernate swapfile already exists; aborting to avoid overwriting.
+  when: swap_subvolume.stat.exists or swapfile.stat.exists
+
+- name: Create Btrfs subvolume for swap
+  ansible.builtin.command:
+    cmd: btrfs subvolume create /swap
+
+- name: Disable Copy-on-Write for swap subvolume
+  ansible.builtin.command:
+    cmd: chattr +C /swap
+
+- name: Create swapfile for hibernate
+  ansible.builtin.command:
+    cmd: btrfs filesystem mkswapfile --size 45G /swap/hibernate
+
+- name: Add SELinux fcontext rule for swapfile
+  ansible.builtin.command:
+    cmd: "semanage fcontext -a -t swapfile_t '/swap(/.*)?'"
+
+- name: Restore SELinux contexts under /swap
+  ansible.builtin.command:
+    cmd: restorecon -RFv /swap
+
+- name: Attempt hibernate; build SELinux allow on failure
+  block:
+    - name: Attempt hibernate
+      ansible.builtin.command:
+        cmd: "swapon /swap/hibernate && systemctl hibernate"
+  rescue:
+    - name: Build local SELinux policy module for hibernate
+      ansible.builtin.shell:
+        cmd: "ausearch -m avc -ts recent -c systemd-sleep | audit2allow -M local-hibernate"
+        chdir: /tmp
+    - name: Check if local SELinux policy module was created
+      ansible.builtin.stat:
+        path: /tmp/local-hibernate.pp
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
+      register: local_hibernate_policy
+    - name: Install local SELinux policy module for hibernate
+      ansible.builtin.command:
+        cmd: semodule -i /tmp/local-hibernate.pp
+      when: local_hibernate_policy.stat.exists
+
+
+# - name: Build local SELinux policy module for hibernate
+#   ansible.builtin.shell:
+#     cmd: "ausearch -m avc -ts recent | audit2allow -M local-hibernate"
+#     chdir: /tmp
+
+# - name: Install local SELinux policy module for hibernate
+#   ansible.builtin.command:
+#     cmd: semodule -i /tmp/local-hibernate.pp

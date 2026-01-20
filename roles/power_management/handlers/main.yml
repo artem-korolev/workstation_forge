@@ -1,15 +1,44 @@
 ---
 # Rebuild initramfs and verify presence of the guard script
-- name: Rebuild initramfs for battery guard
+- name: Rebuild initramfs for battery guard (Ubuntu/Debian)
   listen: Battery guard changed
   ansible.builtin.command:
     cmd: "update-initramfs -u -k {{ battery_guard_rebuild_kernels }}"
+  when: ansible_facts.pkg_mgr == "apt"
   changed_when: true
 
-- name: Verify battery guard in current initramfs
+- name: Verify battery guard in current initramfs (Ubuntu/Debian)
   listen: Battery guard changed
   ansible.builtin.command:
     cmd: bash -lc 'lsinitramfs /boot/initrd.img-$(uname -r) | grep -F 10-battery-guard'
+  when: ansible_facts.pkg_mgr == "apt"
+  register: battery_guard_verify_result
+  changed_when: false
+  failed_when: battery_guard_verify_result.rc != 0
+
+- name: Rebuild initramfs for battery guard (Fedora, all kernels)
+  listen: Battery guard changed
+  ansible.builtin.command:
+    cmd: dracut -f --regenerate-all
+  when:
+    - ansible_facts.pkg_mgr in ["dnf", "dnf5"]
+    - battery_guard_rebuild_kernels | default('all') == 'all'
+  changed_when: true
+
+- name: Rebuild initramfs for battery guard (Fedora, single kernel)
+  listen: Battery guard changed
+  ansible.builtin.command:
+    cmd: "dracut -f --kver {{ battery_guard_rebuild_kernels }}"
+  when:
+    - ansible_facts.pkg_mgr in ["dnf", "dnf5"]
+    - battery_guard_rebuild_kernels | default('all') != 'all'
+  changed_when: true
+
+- name: Verify battery guard in current initramfs (Fedora)
+  listen: Battery guard changed
+  ansible.builtin.command:
+    cmd: "bash -lc 'lsinitrd /boot/initramfs-$(uname -r).img | grep -F battery-boot-guard.sh'"
+  when: ansible_facts.pkg_mgr in ["dnf", "dnf5"]
   register: battery_guard_verify_result
   changed_when: false
   failed_when: battery_guard_verify_result.rc != 0

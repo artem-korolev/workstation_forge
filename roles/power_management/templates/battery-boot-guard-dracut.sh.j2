@@ -1,0 +1,95 @@
+#!/bin/sh
+# Abort boot/resume on low battery (dracut initramfs)
+
+# ---- settings
+THRESHOLD={{ battery_critical_level }}   # percent
+PLYMOUTH_MESSAGE="Battery ${CAP}% <= ${THRESHOLD}% - too low to start. Please connect power."
+# Optional: path to an icon included by the theme (leave empty if none)
+PLYMOUTH_ICON="{{ battery_guard_plymouth_icon | default('') }}"
+
+# Kernel cmdline toggles: battery_guard=off|force
+CMDLINE="$(cat /proc/cmdline 2>/dev/null)"
+case "$CMDLINE" in
+  *battery_guard=off*)  exit 0 ;;
+  *battery_guard=force*) FORCE_LOW=1 ;;
+esac
+
+# ---- helpers
+plymouth_available() {
+  command -v plymouth >/dev/null 2>&1 || return 1
+  plymouth --ping >/dev/null 2>&1 || return 1
+  return 0
+}
+
+plymouth_notify_low_battery() {
+  # Ensure splash is visible (some initramfs show it later)
+  plymouth --show-splash >/dev/null 2>&1 || true
+
+  # Optional icon (supported by some themes)
+  if [ -n "$PLYMOUTH_ICON" ]; then
+    plymouth display-message --icon-path="$PLYMOUTH_ICON" --text="$PLYMOUTH_MESSAGE" >/dev/null 2>&1 || \
+      plymouth display-message --text="$PLYMOUTH_MESSAGE" >/dev/null 2>&1 || true
+  else
+    plymouth display-message --text="$PLYMOUTH_MESSAGE" >/dev/null 2>&1 || true
+  fi
+
+  # Give user a moment to read
+  sleep 2
+}
+
+is_mains_online() {
+  for d in /sys/class/power_supply/*; do
+    [ -d "$d" ] || continue
+    [ -f "$d/type" ] || continue
+    if [ "$(cat "$d/type")" != "Battery" ] && [ -f "$d/online" ] && [ "$(cat "$d/online")" = "1" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+read_capacity() {
+  for d in /sys/class/power_supply/*; do
+    [ -d "$d" ] || continue
+    [ -f "$d/type" ] || continue
+    if [ "$(cat "$d/type")" = "Battery" ] && [ -f "$d/capacity" ]; then
+      cat "$d/capacity"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# ---- logic
+if is_mains_online; then
+  exit 0
+fi
+
+if [ -n "$FORCE_LOW" ]; then
+  CAP=0
+else
+  CAP="$(read_capacity || echo 100)"
+fi
+
+# Allow boot only if strictly above threshold (matches <= in your userspace rule)
+[ "$CAP" -gt "$THRESHOLD" ] && exit 0
+
+# Prevent resume this boot only (image remains intact)
+echo 0 > /sys/power/resume 2>/dev/null || true
+
+# Too low: announce + stop boot
+echo "battery-guard: Battery ${CAP}% <= ${THRESHOLD}%. Stopping boot." > /dev/kmsg
+# Also print to the visible console in case Plymouth isn't running
+echo "Battery ${CAP}% <= ${THRESHOLD}% - too low to start. Connect AC power." > /dev/console 2>/dev/null || true
+
+if plymouth_available; then
+  plymouth_notify_low_battery
+fi
+
+# Try clean poweroff; fall back to SysRq
+if command -v poweroff >/dev/null 2>&1; then
+  poweroff -f
+fi
+echo o > /proc/sysrq-trigger 2>/dev/null || true
+sleep 5
+reboot -f

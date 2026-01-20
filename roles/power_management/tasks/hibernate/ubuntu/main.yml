@@ -1,0 +1,19 @@
+---
+# TODO: This is distro specific. In Fedora it is configured by driver
+#
+# - name: Setup and configure UPower
+#   ansible.builtin.include_tasks: configure_nvidia_suspend_settings.yml
+
+# TODO: Does not make any sense to enable it in KDE interface, cause it will not function, when hibernate partition is not connected
+#
+# - name: Configure hibernate and in the system (turn off swap and use it only for hibernate)
+#   ansible.builtin.include_tasks: enable_hibernate_in_kde.yml
+
+- name: Configure GRUB and initramfs to support hibernate (you must have partition with 'hibernate' label set large enough to store your RAM)
+  ansible.builtin.include_tasks: configure_grub_and_initramfs.yml
+
+- name: Force hibernate on critical battery power (UPower cannot pass `--ignore-inhibitors` flag to hibernate service unfortunately, so doing it manually)
+  ansible.builtin.include_tasks: force_hibernate_service.yml
+
+- name: Add battery guard service at boot time to prevent system booting, when battery is low
+  ansible.builtin.include_tasks: battery_boot_guard.yml

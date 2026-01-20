@@ -9,17 +9,27 @@
 # - name: Configure hibernate and in the system (turn off swap and use it only for hibernate)
 #   ansible.builtin.include_tasks: enable_hibernate_in_kde.yml
 
+- name: Debug OS family
+  ansible.builtin.debug:
+    var: ansible_facts.os_family
+
+- name: Debug OS family
+  ansible.builtin.debug:
+    var: ansible_facts.distribution
+
+- name: Debug OS family
+  ansible.builtin.debug:
+    var: ansible_facts.distribution_variant
+
 - name: Check for hibernate support in the system
   ansible.builtin.include_tasks: check_hibernate_support.yml
 
-- name: Configure GRUB and initramfs to support hibernate (you must have partition with 'hibernate' label set large enough to store your RAM)
-  ansible.builtin.include_tasks: configure_grub_and_initramfs.yml
+- name: Configure hibernate for Ubuntu
+  ansible.builtin.include_tasks: ubuntu/main.yml
   when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu
 
-- name: Force hibernate on critical battery power (UPower cannot pass `--ignore-inhibitors` flag to hibernate service unfortunately, so doing it manually)
-  ansible.builtin.include_tasks: force_hibernate_service.yml
-  when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu
-
-- name: Add battery guard service at boot time to prevent system booting, when battery is low
-  ansible.builtin.include_tasks: battery_boot_guard.yml
-  when: ansible_facts.os_family == "Debian" # covers Debian + Ubuntu
+- name: Configure hibernate for Fedora
+  ansible.builtin.include_tasks: fedora/main.yml
+  when:
+    - ansible_facts.distribution == "Fedora"
+    # - ansible_facts.distribution_variant == "Workstation"

@@ -1,0 +1,66 @@
+---
+- name: Ensure dracut is installed (Fedora)
+  ansible.builtin.package:
+    name: dracut
+    state: present
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Ensure dracut config directory exists
+  ansible.builtin.file:
+    path: /etc/dracut.conf.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Ensure battery guard dracut module directory exists
+  ansible.builtin.file:
+    path: /usr/lib/dracut/modules.d/95battery-guard
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Install battery boot guard script for dracut
+  ansible.builtin.template:
+    src: battery-boot-guard-dracut.sh.j2
+    dest: /usr/lib/dracut/modules.d/95battery-guard/battery-boot-guard.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Battery guard changed
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Install dracut module setup for battery boot guard
+  ansible.builtin.template:
+    src: battery-boot-guard.module-setup.sh.j2
+    dest: /usr/lib/dracut/modules.d/95battery-guard/module-setup.sh
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Battery guard changed
+  tags: [power_management, battery_guard, initramfs]
+
+- name: Enable battery guard dracut module
+  ansible.builtin.copy:
+    dest: /etc/dracut.conf.d/95-battery-guard.conf
+    content: 'add_dracutmodules+=" battery-guard "\n'
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Battery guard changed
+  tags: [power_management, battery_guard, initramfs]
+
+# Rebuild all kernels by default; override with:
+#   battery_guard_rebuild_kernels: "{{ ansible_kernel }}"   # current only
+- name: Set kernel list for initramfs rebuild
+  ansible.builtin.set_fact:
+    battery_guard_rebuild_kernels: "{{ battery_guard_rebuild_kernels | default('all') }}"
+  tags: [power_management, battery_guard, initramfs]
+
+# Optional: run the handler immediately so verification happens in this role
+- name: Flush handlers to rebuild/verify initramfs now
+  ansible.builtin.meta: flush_handlers
+  tags: [power_management, battery_guard, initramfs]

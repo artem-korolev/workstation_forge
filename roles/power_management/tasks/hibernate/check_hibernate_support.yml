@@ -1,11 +1,11 @@
 ---
 - name: Check if suspend to disk (hibernate) is supported
   ansible.builtin.command: grep -q 'disk' /sys/power/state
-  register: hibernate_supported
+  register: power_management_hibernate_supported
   changed_when: false
-  failed_when: hibernate_supported.rc != 0
+  failed_when: power_management_hibernate_supported.rc != 0
 
 - name: Fail if suspend to disk is not supported
   ansible.builtin.fail:
     msg: Suspend to disk (hibernate) is not supported on this system.
-  when: hibernate_supported.rc != 0
+  when: power_management_hibernate_supported.rc != 0
