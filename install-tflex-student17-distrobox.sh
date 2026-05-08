@@ -36,6 +36,8 @@ IFS=$'\n\t'
 #   TFLEX_GRAPHICS_DRIVER=x11      # x11 = XWayland inside GNOME Wayland
 #   TFLEX_SKIP_WINETRICKS=0
 #   TFLEX_SKIP_GPU_CHECK=0
+#   TFLEX_LANG=ru_RU.UTF-8
+#   TFLEX_LANGUAGE=ru_RU:ru
 
 log() {
   printf '\033[1;34m[HOST]\033[0m %s\n' "$*"
@@ -110,6 +112,8 @@ INSTALL_LAUNCHER="${TFLEX_INSTALL_LAUNCHER:-1}"
 GRAPHICS_DRIVER="${TFLEX_GRAPHICS_DRIVER:-x11}"
 SKIP_WINETRICKS="${TFLEX_SKIP_WINETRICKS:-0}"
 SKIP_GPU_CHECK="${TFLEX_SKIP_GPU_CHECK:-0}"
+TFLEX_LANG="${TFLEX_LANG:-ru_RU.UTF-8}"
+TFLEX_LANGUAGE="${TFLEX_LANGUAGE:-ru_RU:ru}"
 
 case "$RECREATE_CONTAINER" in
   0|1) ;;
@@ -242,6 +246,8 @@ INSTALL_TFLEX="${TFLEX_INSTALL_TFLEX:-1}"
 GRAPHICS_DRIVER="${TFLEX_GRAPHICS_DRIVER:-x11}"
 SKIP_WINETRICKS="${TFLEX_SKIP_WINETRICKS:-0}"
 SKIP_GPU_CHECK="${TFLEX_SKIP_GPU_CHECK:-0}"
+TFLEX_LANG="${TFLEX_LANG:-ru_RU.UTF-8}"
+TFLEX_LANGUAGE="${TFLEX_LANGUAGE:-ru_RU:ru}"
 
 PREREQ_ZIP="/mnt/tflex/input/Prerequisites_T-FLEX_Linux.zip"
 STUDENT_ZIP="/mnt/tflex/input/TFCAD_ST_17x64_PACK.zip"
@@ -279,7 +285,20 @@ log "Installing base packages"
   fonts-liberation \
   xdg-utils \
   mesa-utils \
-  vulkan-tools
+  vulkan-tools \
+  locales \
+  language-pack-ru
+
+log "Configuring Russian UTF-8 locale"
+"${SUDO[@]}" locale-gen ru_RU.UTF-8 || true
+"${SUDO[@]}" update-locale LANG=ru_RU.UTF-8 LANGUAGE=ru_RU:ru || true
+
+export LANG="$TFLEX_LANG"
+export LC_ALL="$TFLEX_LANG"
+export LANGUAGE="$TFLEX_LANGUAGE"
+
+log "Effective locale:"
+locale || true
 
 log "Configuring WineHQ repository"
 "${SUDO[@]}" mkdir -pm755 /etc/apt/keyrings
@@ -391,6 +410,9 @@ log "Copied MSI to ASCII-safe path: $MSI_ASCII"
 
 export WINEPREFIX
 export WINEARCH
+export LANG="$TFLEX_LANG"
+export LC_ALL="$TFLEX_LANG"
+export LANGUAGE="$TFLEX_LANGUAGE"
 
 if [[ "$RESET_PREFIX" == "1" ]]; then
   log "Resetting Wine prefix: $WINEPREFIX"
@@ -401,7 +423,7 @@ fi
 mkdir -p "$(dirname "$WINEPREFIX")"
 
 if [[ ! -d "$WINEPREFIX/drive_c" ]]; then
-  log "Creating new Wine prefix: $WINEPREFIX"
+  log "Creating new Wine prefix with locale LANG=$LANG LC_ALL=$LC_ALL LANGUAGE=$LANGUAGE: $WINEPREFIX"
   WINEDLLOVERRIDES="mscoree=" wineboot -u
   wineserver -w || true
 else
@@ -412,6 +434,16 @@ fi
 
 log "Setting Wine graphics driver: $GRAPHICS_DRIVER"
 wine reg add "HKCU\\Software\\Wine\\Drivers" /v Graphics /t REG_SZ /d "$GRAPHICS_DRIVER" /f || true
+
+log "Configuring Wine Russian locale/codepage registry"
+wine reg add "HKCU\\Control Panel\\International" /v LocaleName /t REG_SZ /d ru-RU /f || true
+wine reg add "HKCU\\Control Panel\\International" /v sLanguage /t REG_SZ /d RUS /f || true
+wine reg add "HKCU\\Control Panel\\International" /v sCountry /t REG_SZ /d Russia /f || true
+wine reg add "HKCU\\Control Panel\\International" /v iCountry /t REG_SZ /d 7 /f || true
+wine reg add "HKLM\\System\\CurrentControlSet\\Control\\Nls\\CodePage" /v ACP /t REG_SZ /d 1251 /f || true
+wine reg add "HKLM\\System\\CurrentControlSet\\Control\\Nls\\CodePage" /v OEMCP /t REG_SZ /d 866 /f || true
+wine reg add "HKLM\\System\\CurrentControlSet\\Control\\Nls\\Language" /v Default /t REG_SZ /d 0419 /f || true
+wine reg add "HKLM\\System\\CurrentControlSet\\Control\\Nls\\Language" /v InstallLanguage /t REG_SZ /d 0419 /f || true
 
 log "Configuring DPI: $DPI"
 wine reg add "HKCU\\Control Panel\\Desktop" /v LogPixels /t REG_DWORD /d "$DPI" /f
@@ -434,6 +466,10 @@ set -Eeuo pipefail
 
 export WINEPREFIX="$WINEPREFIX"
 export WINEARCH="win64"
+
+export LANG="$TFLEX_LANG"
+export LC_ALL="$TFLEX_LANG"
+export LANGUAGE="$TFLEX_LANGUAGE"
 
 # Useful on NVIDIA hosts. Harmless if unsupported.
 export __GLX_VENDOR_LIBRARY_NAME=nvidia
@@ -647,6 +683,11 @@ distrobox enter "$CONTAINER_NAME" -- env \
   TFLEX_GRAPHICS_DRIVER="$GRAPHICS_DRIVER" \
   TFLEX_SKIP_WINETRICKS="$SKIP_WINETRICKS" \
   TFLEX_SKIP_GPU_CHECK="$SKIP_GPU_CHECK" \
+  TFLEX_LANG="$TFLEX_LANG" \
+  TFLEX_LANGUAGE="$TFLEX_LANGUAGE" \
+  LANG="$TFLEX_LANG" \
+  LC_ALL="$TFLEX_LANG" \
+  LANGUAGE="$TFLEX_LANGUAGE" \
   bash /mnt/tflex/install-inside-container.sh
 
 if [[ "$INSTALL_LAUNCHER" == "1" ]]; then
@@ -686,3 +727,4 @@ fi
 log "Installation/setup finished."
 log "Run T-FLEX with:"
 printf '  %s\n' "$HOME/.local/bin/tflex-cad-student-17"
+

@@ -1,0 +1,58 @@
+FROM docker.io/library/ubuntu:24.04
+
+ARG WINE_VERSION=10.9~noble-1
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=ru_RU.UTF-8
+ENV LC_ALL=ru_RU.UTF-8
+ENV LANGUAGE=ru_RU:ru
+ENV WINEARCH=win64
+
+RUN dpkg --add-architecture i386 && \
+    apt-get update && \
+    apt-get install -y \
+      ca-certificates \
+      wget \
+      gnupg \
+      unzip \
+      p7zip-full \
+      cabextract \
+      winbind \
+      zenity \
+      fontconfig \
+      fonts-dejavu-core \
+      fonts-liberation \
+      xdg-utils \
+      mesa-utils \
+      vulkan-tools \
+      locales \
+      language-pack-ru \
+      procps \
+      file \
+      less \
+      nano && \
+    locale-gen ru_RU.UTF-8 && \
+    update-locale LANG=ru_RU.UTF-8 LANGUAGE=ru_RU:ru && \
+    mkdir -pm755 /etc/apt/keyrings && \
+    wget -O /etc/apt/keyrings/winehq-archive.key \
+      https://dl.winehq.org/wine-builds/winehq.key && \
+    wget -O /etc/apt/sources.list.d/winehq-noble.sources \
+      https://dl.winehq.org/wine-builds/ubuntu/dists/noble/winehq-noble.sources && \
+    apt-get update && \
+    apt-get install -y --allow-downgrades --install-recommends \
+      winehq-staging=${WINE_VERSION} \
+      wine-staging=${WINE_VERSION} \
+      wine-staging-amd64=${WINE_VERSION} \
+      wine-staging-i386=${WINE_VERSION} \
+      winetricks && \
+    apt-mark hold \
+      winehq-staging \
+      wine-staging \
+      wine-staging-amd64 \
+      wine-staging-i386 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /mnt/tflex/home
+
+CMD ["/bin/bash"]
