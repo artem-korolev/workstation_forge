@@ -16,8 +16,12 @@ DICTATE_MODEL="${DICTATE_MODEL:-medium}"
 DICTATE_DEVICE="${DICTATE_DEVICE:-cuda}"
 DICTATE_COMPUTE_TYPE="${DICTATE_COMPUTE_TYPE:-float16}"
 DICTATE_LANGUAGE="${DICTATE_LANGUAGE:-auto}"
+DICTATE_INSERT_MODE="${DICTATE_INSERT_MODE:-clipboard}"
+DICTATE_PASTE_DELAY_MS="${DICTATE_PASTE_DELAY_MS:-80}"
+DICTATE_RESULT_NOTIFY="${DICTATE_RESULT_NOTIFY:-0}"
 DICTATE_BINDING="${DICTATE_BINDING:-<Super>s}"
 INSTALL_TRAY="${INSTALL_TRAY:-1}"
+INSTALL_ACTIVE_PASTE="${INSTALL_ACTIVE_PASTE:-1}"
 
 # Core commands used by the dictation pipeline.
 REQUIRED_CMDS=(python3 systemctl pw-record wl-copy wl-paste notify-send)
@@ -25,6 +29,7 @@ REQUIRED_CMDS=(python3 systemctl pw-record wl-copy wl-paste notify-send)
 # Host packages needed for the tray indicator on Fedora/GNOME.
 # AppIndicator support in GNOME still requires the GNOME extension enabled by the user.
 TRAY_PACKAGES=(python3-gobject gtk3 libayatana-appindicator-gtk3)
+ACTIVE_PASTE_PACKAGES=(ydotool)
 
 log() {
   printf '\n\033[1;32m==>\033[0m %s\n' "$*"
@@ -78,6 +83,7 @@ install_host_packages_if_missing() {
         notify-send) missing+=(libnotify) ;;
         python3) missing+=(python3) ;;
         systemctl) missing+=(systemd) ;;
+        ydotool) missing+=(ydotool) ;;
       esac
     fi
   done
@@ -90,6 +96,47 @@ install_host_packages_if_missing() {
   log "Required host commands are available"
 }
 
+install_active_paste_packages_if_missing() {
+  [[ "$INSTALL_ACTIVE_PASTE" == "1" ]] || return 0
+
+  if command -v ydotool >/dev/null 2>&1; then
+    log "ydotool is available"
+    return 0
+  fi
+
+  warn "Active-window paste requires ydotool. Installing: ${ACTIVE_PASTE_PACKAGES[*]}"
+  install_fedora_packages "${ACTIVE_PASTE_PACKAGES[@]}"
+}
+
+configure_ydotool_service() {
+  [[ "$INSTALL_ACTIVE_PASTE" == "1" ]] || return 0
+
+  if ! command -v ydotool >/dev/null 2>&1; then
+    warn "ydotool is not installed; active-window paste will be unavailable"
+    return 0
+  fi
+
+  log "ydotool is available"
+
+  # Intentionally do NOT start/enable ydotool.service here.
+  # ydotoold is a privileged virtual input daemon; starting it should be an
+  # explicit manual admin action, not something this installer does by itself.
+  if systemctl list-unit-files ydotool.service >/dev/null 2>&1; then
+    warn "Active-window paste requires ydotool daemon, but this installer will not start it automatically."
+    warn "To enable auto-paste manually, run:"
+    warn "  sudo systemctl enable --now ydotool.service"
+  else
+    warn "ydotool.service was not found. Active paste may not work until ydotoold is running."
+  fi
+
+  if getent group input >/dev/null 2>&1; then
+    if ! id -nG "$USER" | tr ' ' '\n' | grep -qx input; then
+      warn "If ydotool cannot access its socket, you may need to add your user to input manually:"
+      warn "  sudo usermod -aG input $USER"
+      warn "Then log out/in or reboot."
+    fi
+  fi
+}
 python_import_ok() {
   python3 - "$@" <<'PY' >/dev/null 2>&1
 import sys
@@ -139,16 +186,22 @@ write_config_file() {
     DICTATE_DEVICE="${DICTATE_DEVICE:-cuda}"
     DICTATE_COMPUTE_TYPE="${DICTATE_COMPUTE_TYPE:-float16}"
     DICTATE_LANGUAGE="${DICTATE_LANGUAGE:-auto}"
+    DICTATE_INSERT_MODE="${DICTATE_INSERT_MODE:-clipboard}"
+    DICTATE_PASTE_DELAY_MS="${DICTATE_PASTE_DELAY_MS:-80}"
+    DICTATE_RESULT_NOTIFY="${DICTATE_RESULT_NOTIFY:-0}"
   fi
 
   cat > "$CONFIG_FILE" <<EOF
 # Local GNOME dictation config.
-# Model changes require restarting dictation-daemon.service.
-# Language is read by the daemon for every request, so it can change without restart.
+# Model/device/compute changes require restarting dictation-daemon.service.
+# Language and insert mode are read by client/daemon per request.
 DICTATE_MODEL=$DICTATE_MODEL
 DICTATE_DEVICE=$DICTATE_DEVICE
 DICTATE_COMPUTE_TYPE=$DICTATE_COMPUTE_TYPE
 DICTATE_LANGUAGE=$DICTATE_LANGUAGE
+DICTATE_INSERT_MODE=$DICTATE_INSERT_MODE
+DICTATE_PASTE_DELAY_MS=$DICTATE_PASTE_DELAY_MS
+DICTATE_RESULT_NOTIFY=$DICTATE_RESULT_NOTIFY
 EOF
 }
 
@@ -356,6 +409,70 @@ SHRUN
   chmod +x "$BIN/dictation-daemon-run"
 }
 
+write_paste_script() {
+  log "Writing active-window paste helper"
+
+  mkdir -p "$BIN"
+
+  cat > "$BIN/dictation-paste-active" <<'SHPASTE'
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="$HOME/.config/dictation/config.env"
+DICTATE_PASTE_DELAY_MS=80
+if [[ -f "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE" || true
+fi
+
+sleep_ms() {
+  local ms="${1:-0}"
+  if [[ "$ms" =~ ^[0-9]+$ ]] && [[ "$ms" -gt 0 ]]; then
+    sleep "$(awk -v ms="$ms" 'BEGIN { printf "%.3f", ms / 1000 }')"
+  fi
+}
+
+find_socket() {
+  if [[ -n "${YDOTOOL_SOCKET:-}" && -S "$YDOTOOL_SOCKET" ]]; then
+    printf '%s\n' "$YDOTOOL_SOCKET"
+    return 0
+  fi
+
+  for s in \
+    "$XDG_RUNTIME_DIR/ydotoold/socket" \
+    "/run/user/$(id -u)/ydotoold/socket" \
+    "/run/ydotoold/socket" \
+    "/tmp/.ydotool_socket"; do
+    if [[ -S "$s" ]]; then
+      printf '%s\n' "$s"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+if ! command -v ydotool >/dev/null 2>&1; then
+  echo "ERROR: ydotool not found" >&2
+  exit 127
+fi
+
+sleep_ms "${DICTATE_PASTE_DELAY_MS:-80}"
+
+if SOCK="$(find_socket)"; then
+  export YDOTOOL_SOCKET="$SOCK"
+  echo "YDOTOOL_SOCKET=$YDOTOOL_SOCKET"
+else
+  echo "WARNING: ydotool socket not found; trying ydotool default" >&2
+fi
+
+# Press Ctrl+V. Key codes: KEY_LEFTCTRL=29, KEY_V=47.
+ydotool key 29:1 47:1 47:0 29:0
+SHPASTE
+
+  chmod +x "$BIN/dictation-paste-active"
+}
+
 write_transcribe_client() {
   log "Writing transcribe client"
 
@@ -426,8 +543,29 @@ fi
 
 printf '%s' "$TEXT" | wl-copy --trim-newline
 
+CONFIG_FILE="$HOME/.config/dictation/config.env"
+DICTATE_INSERT_MODE="clipboard"
+DICTATE_RESULT_NOTIFY="0"
+if [[ -f "$CONFIG_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE" || true
+fi
+
+PASTE_STATUS="copied"
+if [[ "${DICTATE_INSERT_MODE:-clipboard}" == "paste" ]]; then
+  if "$HOME/.local/bin/dictation-paste-active"; then
+    PASTE_STATUS="pasted"
+  else
+    PASTE_STATUS="copied; paste failed"
+  fi
+fi
+
 SHORT="$(printf '%s' "$TEXT" | cut -c1-160)"
-notify-send --app-name="Dictation" --transient "Dictation" "$SHORT"
+case "${DICTATE_RESULT_NOTIFY:-0}" in
+  1|true|yes|on)
+    notify-send --app-name="Dictation" --transient "Dictation" "$PASTE_STATUS: $SHORT"
+    ;;
+esac
 SHCLIENT
 
   chmod +x "$BIN/dictate-transcribe"
@@ -539,6 +677,9 @@ DICTATE_MODEL=medium
 DICTATE_DEVICE=cuda
 DICTATE_COMPUTE_TYPE=float16
 DICTATE_LANGUAGE=auto
+DICTATE_INSERT_MODE=clipboard
+DICTATE_PASTE_DELAY_MS=80
+DICTATE_RESULT_NOTIFY=0
 EOF
   fi
 }
@@ -579,9 +720,12 @@ usage() {
   cat <<EOF
 Usage:
   dictation-config status
-  dictation-config get model|language|device|compute-type
+  dictation-config get model|language|device|compute-type|insert-mode|paste-delay|result-notify
   dictation-config set-model small|medium|large-v3|base|tiny
   dictation-config set-language auto|ru|en
+  dictation-config set-insert-mode clipboard|paste
+  dictation-config set-paste-delay milliseconds
+  dictation-config set-result-notify on|off|1|0
   dictation-config set-device cuda|cpu
   dictation-config set-compute-type float16|int8|int8_float16
   dictation-config restart
@@ -601,6 +745,9 @@ case "${1:-}" in
     case "${2:-}" in
       model) get_value DICTATE_MODEL medium ;;
       language) get_value DICTATE_LANGUAGE auto ;;
+      insert-mode) get_value DICTATE_INSERT_MODE clipboard ;;
+      paste-delay) get_value DICTATE_PASTE_DELAY_MS 80 ;;
+      result-notify) get_value DICTATE_RESULT_NOTIFY 0 ;;
       device) get_value DICTATE_DEVICE cuda ;;
       compute-type) get_value DICTATE_COMPUTE_TYPE float16 ;;
       *) usage; exit 2 ;;
@@ -618,6 +765,32 @@ case "${1:-}" in
     set_value DICTATE_LANGUAGE "$value"
     # No daemon restart needed; daemon reads language from config for every request.
     notify "Language: $value"
+    ;;
+  set-insert-mode)
+    value="${2:?insert mode required}"
+    case "$value" in clipboard|paste) ;; *) echo "Invalid insert mode: $value" >&2; exit 2 ;; esac
+    set_value DICTATE_INSERT_MODE "$value"
+    notify "Insert mode: $value"
+    ;;
+  set-paste-delay)
+    value="${2:?paste delay milliseconds required}"
+    case "$value" in (*[!0-9]*|'') echo "Paste delay must be integer milliseconds" >&2; exit 2 ;; esac
+    set_value DICTATE_PASTE_DELAY_MS "$value"
+    notify "Paste delay: ${value}ms"
+    ;;
+  set-result-notify)
+    value="${2:?result notify value required}"
+    case "$value" in
+      on|true|yes|1) value="1" ;;
+      off|false|no|0) value="0" ;;
+      *) echo "Invalid result notify value: $value" >&2; exit 2 ;;
+    esac
+    set_value DICTATE_RESULT_NOTIFY "$value"
+    if [[ "$value" == "1" ]]; then
+      notify "Result notifications: on"
+    else
+      notify "Result notifications: off"
+    fi
     ;;
   set-device)
     value="${2:?device required}"
@@ -694,6 +867,8 @@ TRAY_ID = "local-dictation-tray"
 MODELS = ["tiny", "base", "small", "medium", "large-v3"]
 LANGUAGES = [("auto", "Auto"), ("ru", "Russian"), ("en", "English")]
 DEVICES = [("cuda", "CUDA"), ("cpu", "CPU")]
+INSERT_MODES = [("clipboard", "Clipboard only"), ("paste", "Paste into active window")]
+RESULT_NOTIFY_MODES = [("0", "Off"), ("1", "On")]
 
 
 def notify(message: str):
@@ -788,6 +963,37 @@ class Tray:
         device_label.set_sensitive(False)
         menu.append(device_label)
 
+        current_insert = get_config("DICTATE_INSERT_MODE", "clipboard")
+        insert_label = Gtk.MenuItem(label="Insert")
+        insert_label.set_sensitive(False)
+        menu.append(Gtk.SeparatorMenuItem())
+        menu.append(insert_label)
+
+        insert_group = []
+        for value, label in INSERT_MODES:
+            item = Gtk.RadioMenuItem.new_with_label(insert_group, label)
+            insert_group = item.get_group()
+            item.set_active(value == current_insert)
+            item.connect("toggled", self.on_insert_changed, value)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        result_notify_label = Gtk.MenuItem(label="Result notification")
+        result_notify_label.set_sensitive(False)
+        menu.append(result_notify_label)
+
+        current_result_notify = get_config("DICTATE_RESULT_NOTIFY", "0")
+        result_notify_group = []
+        for value, label in RESULT_NOTIFY_MODES:
+            item = Gtk.RadioMenuItem.new_with_label(result_notify_group, label)
+            result_notify_group = item.get_group()
+            item.set_active(value == current_result_notify)
+            item.connect("toggled", self.on_result_notify_changed, value)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
         current_device = get_config("DICTATE_DEVICE", "cuda")
         device_group = []
         for value, label in DEVICES:
@@ -826,8 +1032,10 @@ class Tray:
         model = get_config("DICTATE_MODEL", "medium")
         lang = get_config("DICTATE_LANGUAGE", "auto")
         device = get_config("DICTATE_DEVICE", "cuda")
+        insert = get_config("DICTATE_INSERT_MODE", "clipboard")
+        result_notify = "notify" if get_config("DICTATE_RESULT_NOTIFY", "0") == "1" else "quiet"
         status = "running" if service_active() else "stopped"
-        self.status_item.set_label(f"Dictation: {status} | {model} | {lang} | {device}")
+        self.status_item.set_label(f"Dictation: {status} | {model} | {lang} | {device} | {insert} | {result_notify}")
         return True
 
     def on_model_changed(self, item, model):
@@ -850,6 +1058,18 @@ class Tray:
         run_async(CONFIG_TOOL, "set-device", device)
         GLib.timeout_add_seconds(2, self.refresh_status)
 
+    def on_insert_changed(self, item, mode):
+        if not item.get_active():
+            return
+        run_async(CONFIG_TOOL, "set-insert-mode", mode)
+        self.refresh_status()
+
+    def on_result_notify_changed(self, item, value):
+        if not item.get_active():
+            return
+        run_async(CONFIG_TOOL, "set-result-notify", value)
+        self.refresh_status()
+
     def on_restart(self, _item):
         notify("Restarting daemon…")
         run_async(CONFIG_TOOL, "restart")
@@ -862,8 +1082,10 @@ class Tray:
         model = get_config("DICTATE_MODEL", "medium")
         lang = get_config("DICTATE_LANGUAGE", "auto")
         device = get_config("DICTATE_DEVICE", "cuda")
+        insert = get_config("DICTATE_INSERT_MODE", "clipboard")
+        result_notify = "notify" if get_config("DICTATE_RESULT_NOTIFY", "0") == "1" else "quiet"
         status = "running" if service_active() else "stopped"
-        notify(f"{status} | model={model} | lang={lang} | device={device}")
+        notify(f"{status} | model={model} | lang={lang} | device={device} | insert={insert} | result notifications={result_notify}")
         self.refresh_status()
 
     def on_quit(self, _item):
@@ -1051,6 +1273,11 @@ Useful commands:
   dictation-config set-language auto
   dictation-config set-language ru
   dictation-config set-language en
+  dictation-config set-insert-mode clipboard
+  dictation-config set-insert-mode paste
+  dictation-config set-paste-delay 120
+  dictation-config set-result-notify off
+  dictation-config set-result-notify on
   systemctl --user status $DAEMON_SERVICE_NAME
   systemctl --user status $TRAY_SERVICE_NAME
   journalctl --user -u $DAEMON_SERVICE_NAME -f
@@ -1063,6 +1290,8 @@ Examples:
   DICTATE_MODEL=medium ./install-dictation-with-tray.sh
   DICTATE_LANGUAGE=ru  ./install-dictation-with-tray.sh
   DICTATE_LANGUAGE=auto ./install-dictation-with-tray.sh
+  DICTATE_INSERT_MODE=paste ./install-dictation-with-tray.sh
+  DICTATE_RESULT_NOTIFY=1 ./install-dictation-with-tray.sh
   INSTALL_TRAY=0 ./install-dictation-with-tray.sh
 ============================================================
 
@@ -1077,6 +1306,7 @@ main() {
   log "Installing local GNOME dictation service with tray controller"
 
   install_host_packages_if_missing
+  install_active_paste_packages_if_missing
   install_tray_packages_if_missing
 
   mkdir -p "$BASE" "$BIN" "$SYSTEMD_USER_DIR" "$CONFIG_DIR"
@@ -1085,10 +1315,12 @@ main() {
   create_venv_and_install_python_deps
   write_daemon_py
   write_daemon_runner
+  write_paste_script
   write_transcribe_client
   write_toggle_script
   write_config_cli
   write_tray_app
+  configure_ydotool_service
   write_systemd_services
   install_gnome_shortcut
   wait_for_service
