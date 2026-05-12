@@ -3,19 +3,28 @@ set -euo pipefail
 
 APP_NAME="Dictation"
 BASE="$HOME/.local/share/dictation"
+CONFIG_DIR="$HOME/.config/dictation"
+CONFIG_FILE="$CONFIG_DIR/config.env"
 BIN="$HOME/.local/bin"
 SYSTEMD_USER_DIR="$HOME/.config/systemd/user"
 
 VENV="$BASE/venv"
-SERVICE_NAME="dictation-daemon.service"
+DAEMON_SERVICE_NAME="dictation-daemon.service"
+TRAY_SERVICE_NAME="dictation-tray.service"
 
 DICTATE_MODEL="${DICTATE_MODEL:-medium}"
 DICTATE_DEVICE="${DICTATE_DEVICE:-cuda}"
 DICTATE_COMPUTE_TYPE="${DICTATE_COMPUTE_TYPE:-float16}"
 DICTATE_LANGUAGE="${DICTATE_LANGUAGE:-auto}"
 DICTATE_BINDING="${DICTATE_BINDING:-<Super>s}"
+INSTALL_TRAY="${INSTALL_TRAY:-1}"
 
+# Core commands used by the dictation pipeline.
 REQUIRED_CMDS=(python3 systemctl pw-record wl-copy wl-paste notify-send)
+
+# Host packages needed for the tray indicator on Fedora/GNOME.
+# AppIndicator support in GNOME still requires the GNOME extension enabled by the user.
+TRAY_PACKAGES=(python3-gobject gtk3 libayatana-appindicator-gtk3)
 
 log() {
   printf '\n\033[1;32m==>\033[0m %s\n' "$*"
@@ -34,6 +43,30 @@ is_silverblue_like() {
   [[ -f /run/ostree-booted ]] || grep -qiE 'silverblue|kinoite|ostree' /etc/os-release 2>/dev/null
 }
 
+dedupe_lines() {
+  awk '!seen[$0]++'
+}
+
+install_fedora_packages() {
+  local packages=("$@")
+  [[ "${#packages[@]}" -gt 0 ]] || return 0
+
+  mapfile -t packages < <(printf '%s\n' "${packages[@]}" | dedupe_lines)
+
+  if is_silverblue_like; then
+    command -v rpm-ostree >/dev/null 2>&1 || die "This looks like an ostree system, but rpm-ostree was not found"
+    log "Installing host packages with rpm-ostree: ${packages[*]}"
+    sudo rpm-ostree install "${packages[@]}"
+    warn "rpm-ostree package install requires reboot before newly layered packages are available."
+    warn "Reboot, then run this installer again."
+    exit 0
+  else
+    command -v dnf >/dev/null 2>&1 || die "dnf not found. This installer currently targets Fedora systems."
+    log "Installing host packages with dnf: ${packages[*]}"
+    sudo dnf install -y "${packages[@]}"
+  fi
+}
+
 install_host_packages_if_missing() {
   local missing=()
 
@@ -49,35 +82,74 @@ install_host_packages_if_missing() {
     fi
   done
 
-  if [[ "${#missing[@]}" -eq 0 ]]; then
-    log "Required host commands already exist"
+  if [[ "${#missing[@]}" -gt 0 ]]; then
+    warn "Missing host packages: ${missing[*]}"
+    install_fedora_packages "${missing[@]}"
+  fi
+
+  log "Required host commands are available"
+}
+
+python_import_ok() {
+  python3 - "$@" <<'PY' >/dev/null 2>&1
+import sys
+mods = sys.argv[1:]
+for m in mods:
+    __import__(m)
+PY
+}
+
+tray_import_ok() {
+  python3 - <<'PY' >/dev/null 2>&1
+import gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3
+except (ValueError, ImportError):
+    gi.require_version("AppIndicator3", "0.1")
+    from gi.repository import AppIndicator3
+PY
+}
+
+install_tray_packages_if_missing() {
+  [[ "$INSTALL_TRAY" == "1" ]] || return 0
+
+  if tray_import_ok; then
+    log "Tray dependencies are available"
     return 0
   fi
 
-  # Deduplicate packages.
-  mapfile -t missing < <(printf '%s\n' "${missing[@]}" | sort -u)
+  warn "Tray dependencies are missing. Need PyGObject/GTK/AppIndicator packages."
+  install_fedora_packages "${TRAY_PACKAGES[@]}"
+}
 
-  warn "Missing host packages: ${missing[*]}"
+write_config_file() {
+  log "Writing config: $CONFIG_FILE"
 
-  if is_silverblue_like; then
-    if ! command -v rpm-ostree >/dev/null 2>&1; then
-      die "This looks like an ostree system, but rpm-ostree was not found"
-    fi
+  mkdir -p "$CONFIG_DIR"
 
-    log "Installing missing packages with rpm-ostree"
-    sudo rpm-ostree install "${missing[@]}"
-
-    warn "rpm-ostree package install requires reboot before commands are available."
-    warn "Reboot, then run this installer again."
-    exit 0
-  else
-    if ! command -v dnf >/dev/null 2>&1; then
-      die "dnf not found. This installer currently targets Fedora systems."
-    fi
-
-    log "Installing missing packages with dnf"
-    sudo dnf install -y "${missing[@]}"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    # Preserve existing config unless env vars were explicitly passed to installer.
+    # This makes reruns safe while still allowing: DICTATE_MODEL=small ./install-dictation.sh
+    # shellcheck disable=SC1090
+    source "$CONFIG_FILE" || true
+    DICTATE_MODEL="${DICTATE_MODEL:-medium}"
+    DICTATE_DEVICE="${DICTATE_DEVICE:-cuda}"
+    DICTATE_COMPUTE_TYPE="${DICTATE_COMPUTE_TYPE:-float16}"
+    DICTATE_LANGUAGE="${DICTATE_LANGUAGE:-auto}"
   fi
+
+  cat > "$CONFIG_FILE" <<EOF
+# Local GNOME dictation config.
+# Model changes require restarting dictation-daemon.service.
+# Language is read by the daemon for every request, so it can change without restart.
+DICTATE_MODEL=$DICTATE_MODEL
+DICTATE_DEVICE=$DICTATE_DEVICE
+DICTATE_COMPUTE_TYPE=$DICTATE_COMPUTE_TYPE
+DICTATE_LANGUAGE=$DICTATE_LANGUAGE
+EOF
 }
 
 write_daemon_py() {
@@ -97,6 +169,7 @@ from faster_whisper import WhisperModel
 
 RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", "/tmp")
 SOCKET_PATH = os.path.join(RUNTIME_DIR, "dictation", "dictation.sock")
+CONFIG_FILE = os.path.expanduser("~/.config/dictation/config.env")
 
 MODEL_NAME = os.environ.get("DICTATE_MODEL", "medium")
 DEVICE = os.environ.get("DICTATE_DEVICE", "cuda")
@@ -126,6 +199,26 @@ server.listen(8)
 print(f"Listening on {SOCKET_PATH}", flush=True)
 
 
+def read_config_value(key: str, default: str) -> str:
+    value = os.environ.get(key, default)
+
+    try:
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    value = v.strip().strip('"').strip("'")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"Could not read config {CONFIG_FILE}: {e}", flush=True)
+
+    return value
+
+
 def recv_all(conn):
     chunks = []
     while True:
@@ -139,7 +232,7 @@ def recv_all(conn):
 def transcribe(audio_path: str) -> str:
     print(f"Transcribing: {audio_path}", flush=True)
 
-    lang = os.environ.get("DICTATE_LANGUAGE", "auto").strip().lower()
+    lang = read_config_value("DICTATE_LANGUAGE", "auto").strip().lower()
     language = None if lang in ("", "auto", "detect") else lang
 
     segments, info = model.transcribe(
@@ -199,6 +292,14 @@ set -euo pipefail
 
 BASE="$HOME/.local/share/dictation"
 VENV="$BASE/venv"
+CONFIG_FILE="$HOME/.config/dictation/config.env"
+
+if [[ -f "$CONFIG_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+  set +a
+fi
 
 # Collect all possible NVIDIA Python wheel library paths.
 # Fedora/Python can use lib or lib64 depending on build, so do not assume one.
@@ -243,11 +344,11 @@ export DICTATE_DEVICE="${DICTATE_DEVICE:-cuda}"
 export DICTATE_COMPUTE_TYPE="${DICTATE_COMPUTE_TYPE:-float16}"
 export DICTATE_LANGUAGE="${DICTATE_LANGUAGE:-auto}"
 
-echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
-echo "DICTATE_MODEL=$DICTATE_MODEL"
-echo "DICTATE_DEVICE=$DICTATE_DEVICE"
-echo "DICTATE_COMPUTE_TYPE=$DICTATE_COMPUTE_TYPE"
-echo "DICTATE_LANGUAGE=$DICTATE_LANGUAGE"
+printf 'LD_LIBRARY_PATH=%s\n' "${LD_LIBRARY_PATH:-}"
+printf 'DICTATE_MODEL=%s\n' "$DICTATE_MODEL"
+printf 'DICTATE_DEVICE=%s\n' "$DICTATE_DEVICE"
+printf 'DICTATE_COMPUTE_TYPE=%s\n' "$DICTATE_COMPUTE_TYPE"
+printf 'DICTATE_LANGUAGE=%s\n' "$DICTATE_LANGUAGE"
 
 exec "$VENV/bin/python" "$BASE/dictation_daemon.py"
 SHRUN
@@ -270,8 +371,8 @@ BASE="$HOME/.local/share/dictation"
 VENV="$BASE/venv"
 SOCKET="${XDG_RUNTIME_DIR:-/tmp}/dictation/dictation.sock"
 
-echo "WAV=$WAV"
-echo "SOCKET=$SOCKET"
+printf 'WAV=%s\n' "$WAV"
+printf 'SOCKET=%s\n' "$SOCKET"
 
 if [[ ! -s "$WAV" ]]; then
   notify-send --app-name="Dictation" --transient "Dictation" "Audio file is empty"
@@ -316,7 +417,7 @@ print(response.get("text", "").strip())
 PY
 )"
 
-echo "TEXT=[$TEXT]"
+printf 'TEXT=[%s]\n' "$TEXT"
 
 if [[ -z "$TEXT" ]]; then
   notify-send --app-name="Dictation" --transient "Dictation" "No speech recognized"
@@ -415,6 +516,368 @@ SHTOGGLE
   chmod +x "$BIN/dictate-toggle"
 }
 
+write_config_cli() {
+  log "Writing config CLI"
+
+  mkdir -p "$BIN"
+
+  cat > "$BIN/dictation-config" <<'SHCFG'
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_DIR="$HOME/.config/dictation"
+CONFIG_FILE="$CONFIG_DIR/config.env"
+DAEMON_SERVICE="dictation-daemon.service"
+TRAY_SERVICE="dictation-tray.service"
+
+mkdir -p "$CONFIG_DIR"
+
+ensure_config() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    cat > "$CONFIG_FILE" <<'EOF'
+DICTATE_MODEL=medium
+DICTATE_DEVICE=cuda
+DICTATE_COMPUTE_TYPE=float16
+DICTATE_LANGUAGE=auto
+EOF
+  fi
+}
+
+get_value() {
+  local key="$1" default="${2:-}"
+  ensure_config
+  awk -F= -v key="$key" -v default="$default" '
+    $1 == key { value=$2; found=1 }
+    END { print found ? value : default }
+  ' "$CONFIG_FILE"
+}
+
+set_value() {
+  local key="$1" value="$2"
+  ensure_config
+  local tmp
+  tmp="$(mktemp)"
+  awk -F= -v key="$key" -v value="$value" '
+    BEGIN { done=0 }
+    $1 == key { print key "=" value; done=1; next }
+    { print }
+    END { if (!done) print key "=" value }
+  ' "$CONFIG_FILE" > "$tmp"
+  mv "$tmp" "$CONFIG_FILE"
+}
+
+restart_daemon() {
+  systemctl --user daemon-reload
+  systemctl --user restart "$DAEMON_SERVICE"
+}
+
+notify() {
+  notify-send --app-name="Dictation" --transient "Dictation" "$*" 2>/dev/null || true
+}
+
+usage() {
+  cat <<EOF
+Usage:
+  dictation-config status
+  dictation-config get model|language|device|compute-type
+  dictation-config set-model small|medium|large-v3|base|tiny
+  dictation-config set-language auto|ru|en
+  dictation-config set-device cuda|cpu
+  dictation-config set-compute-type float16|int8|int8_float16
+  dictation-config restart
+  dictation-config open-logs
+EOF
+}
+
+case "${1:-}" in
+  status)
+    ensure_config
+    echo "Config: $CONFIG_FILE"
+    cat "$CONFIG_FILE"
+    echo
+    systemctl --user --no-pager --lines=0 status "$DAEMON_SERVICE" || true
+    ;;
+  get)
+    case "${2:-}" in
+      model) get_value DICTATE_MODEL medium ;;
+      language) get_value DICTATE_LANGUAGE auto ;;
+      device) get_value DICTATE_DEVICE cuda ;;
+      compute-type) get_value DICTATE_COMPUTE_TYPE float16 ;;
+      *) usage; exit 2 ;;
+    esac
+    ;;
+  set-model)
+    value="${2:?model required}"
+    set_value DICTATE_MODEL "$value"
+    notify "Switching model to $value…"
+    restart_daemon
+    notify "Model: $value"
+    ;;
+  set-language)
+    value="${2:?language required}"
+    set_value DICTATE_LANGUAGE "$value"
+    # No daemon restart needed; daemon reads language from config for every request.
+    notify "Language: $value"
+    ;;
+  set-device)
+    value="${2:?device required}"
+    set_value DICTATE_DEVICE "$value"
+    notify "Switching device to $value…"
+    restart_daemon
+    notify "Device: $value"
+    ;;
+  set-compute-type)
+    value="${2:?compute type required}"
+    set_value DICTATE_COMPUTE_TYPE "$value"
+    notify "Switching compute type to $value…"
+    restart_daemon
+    notify "Compute type: $value"
+    ;;
+  restart)
+    restart_daemon
+    notify "Daemon restarted"
+    ;;
+  open-logs)
+    if command -v ptyxis >/dev/null 2>&1; then
+      ptyxis -- bash -lc "journalctl --user -u $DAEMON_SERVICE -f; exec bash" >/dev/null 2>&1 &
+    elif command -v gnome-terminal >/dev/null 2>&1; then
+      gnome-terminal -- bash -lc "journalctl --user -u $DAEMON_SERVICE -f; exec bash" >/dev/null 2>&1 &
+    else
+      journalctl --user -u "$DAEMON_SERVICE" -n 80 --no-pager
+    fi
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+SHCFG
+
+  chmod +x "$BIN/dictation-config"
+}
+
+write_tray_app() {
+  [[ "$INSTALL_TRAY" == "1" ]] || return 0
+
+  log "Writing tray app"
+
+  mkdir -p "$BIN"
+
+  cat > "$BIN/dictation-tray" <<'PYTRAY'
+#!/usr/bin/env python3
+import os
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, GLib
+
+Indicator = None
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3 as Indicator
+except (ValueError, ImportError):
+    try:
+        gi.require_version("AppIndicator3", "0.1")
+        from gi.repository import AppIndicator3 as Indicator
+    except (ValueError, ImportError) as e:
+        print("Neither AyatanaAppIndicator3 nor AppIndicator3 is available", file=sys.stderr)
+        raise e
+
+CONFIG = os.path.expanduser("~/.config/dictation/config.env")
+CONFIG_TOOL = os.path.expanduser("~/.local/bin/dictation-config")
+DAEMON_SERVICE = "dictation-daemon.service"
+TRAY_ID = "local-dictation-tray"
+
+MODELS = ["tiny", "base", "small", "medium", "large-v3"]
+LANGUAGES = [("auto", "Auto"), ("ru", "Russian"), ("en", "English")]
+DEVICES = [("cuda", "CUDA"), ("cpu", "CPU")]
+
+
+def notify(message: str):
+    subprocess.Popen([
+        "notify-send", "--app-name=Dictation", "--transient", "Dictation", message
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run_async(*args):
+    subprocess.Popen(list(args), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def run_sync(*args) -> str:
+    try:
+        return subprocess.check_output(list(args), text=True).strip()
+    except Exception:
+        return ""
+
+
+def get_config(key: str, default: str) -> str:
+    if os.path.exists(CONFIG):
+        with open(CONFIG, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() == key:
+                    return v.strip().strip('"').strip("'")
+    return default
+
+
+def service_active() -> bool:
+    return subprocess.call(
+        ["systemctl", "--user", "is-active", "--quiet", DAEMON_SERVICE],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    ) == 0
+
+
+class Tray:
+    def __init__(self):
+        self.indicator = Indicator.Indicator.new(
+            TRAY_ID,
+            "audio-input-microphone-symbolic",
+            Indicator.IndicatorCategory.APPLICATION_STATUS,
+        )
+        self.indicator.set_status(Indicator.IndicatorStatus.ACTIVE)
+        self.indicator.set_title("Dictation")
+        self.build_menu()
+        GLib.timeout_add_seconds(5, self.refresh_status)
+
+    def build_menu(self):
+        menu = Gtk.Menu()
+
+        self.status_item = Gtk.MenuItem(label="Dictation: checking…")
+        self.status_item.set_sensitive(False)
+        menu.append(self.status_item)
+        menu.append(Gtk.SeparatorMenuItem())
+
+        model_label = Gtk.MenuItem(label="Model")
+        model_label.set_sensitive(False)
+        menu.append(model_label)
+
+        current_model = get_config("DICTATE_MODEL", "medium")
+        model_group = []
+        for model in MODELS:
+            item = Gtk.RadioMenuItem.new_with_label(model_group, model)
+            model_group = item.get_group()
+            item.set_active(model == current_model)
+            item.connect("toggled", self.on_model_changed, model)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        lang_label = Gtk.MenuItem(label="Language")
+        lang_label.set_sensitive(False)
+        menu.append(lang_label)
+
+        current_lang = get_config("DICTATE_LANGUAGE", "auto")
+        lang_group = []
+        for value, label in LANGUAGES:
+            item = Gtk.RadioMenuItem.new_with_label(lang_group, label)
+            lang_group = item.get_group()
+            item.set_active(value == current_lang)
+            item.connect("toggled", self.on_language_changed, value)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        device_label = Gtk.MenuItem(label="Device")
+        device_label.set_sensitive(False)
+        menu.append(device_label)
+
+        current_device = get_config("DICTATE_DEVICE", "cuda")
+        device_group = []
+        for value, label in DEVICES:
+            item = Gtk.RadioMenuItem.new_with_label(device_group, label)
+            device_group = item.get_group()
+            item.set_active(value == current_device)
+            item.connect("toggled", self.on_device_changed, value)
+            menu.append(item)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        restart = Gtk.MenuItem(label="Restart daemon")
+        restart.connect("activate", self.on_restart)
+        menu.append(restart)
+
+        logs = Gtk.MenuItem(label="Open logs")
+        logs.connect("activate", self.on_logs)
+        menu.append(logs)
+
+        status = Gtk.MenuItem(label="Show status")
+        status.connect("activate", self.on_status)
+        menu.append(status)
+
+        menu.append(Gtk.SeparatorMenuItem())
+
+        quit_item = Gtk.MenuItem(label="Quit tray")
+        quit_item.connect("activate", self.on_quit)
+        menu.append(quit_item)
+
+        menu.show_all()
+        self.indicator.set_menu(menu)
+        self.menu = menu
+        self.refresh_status()
+
+    def refresh_status(self):
+        model = get_config("DICTATE_MODEL", "medium")
+        lang = get_config("DICTATE_LANGUAGE", "auto")
+        device = get_config("DICTATE_DEVICE", "cuda")
+        status = "running" if service_active() else "stopped"
+        self.status_item.set_label(f"Dictation: {status} | {model} | {lang} | {device}")
+        return True
+
+    def on_model_changed(self, item, model):
+        if not item.get_active():
+            return
+        notify(f"Switching model to {model}…")
+        run_async(CONFIG_TOOL, "set-model", model)
+        GLib.timeout_add_seconds(2, self.refresh_status)
+
+    def on_language_changed(self, item, lang):
+        if not item.get_active():
+            return
+        run_async(CONFIG_TOOL, "set-language", lang)
+        self.refresh_status()
+
+    def on_device_changed(self, item, device):
+        if not item.get_active():
+            return
+        notify(f"Switching device to {device}…")
+        run_async(CONFIG_TOOL, "set-device", device)
+        GLib.timeout_add_seconds(2, self.refresh_status)
+
+    def on_restart(self, _item):
+        notify("Restarting daemon…")
+        run_async(CONFIG_TOOL, "restart")
+        GLib.timeout_add_seconds(2, self.refresh_status)
+
+    def on_logs(self, _item):
+        run_async(CONFIG_TOOL, "open-logs")
+
+    def on_status(self, _item):
+        model = get_config("DICTATE_MODEL", "medium")
+        lang = get_config("DICTATE_LANGUAGE", "auto")
+        device = get_config("DICTATE_DEVICE", "cuda")
+        status = "running" if service_active() else "stopped"
+        notify(f"{status} | model={model} | lang={lang} | device={device}")
+        self.refresh_status()
+
+    def on_quit(self, _item):
+        Gtk.main_quit()
+
+
+if __name__ == "__main__":
+    Tray()
+    Gtk.main()
+PYTRAY
+
+  chmod +x "$BIN/dictation-tray"
+}
+
 create_venv_and_install_python_deps() {
   log "Creating Python venv and installing Faster-Whisper"
 
@@ -433,21 +896,17 @@ create_venv_and_install_python_deps() {
     nvidia-cudnn-cu12
 }
 
-write_systemd_service() {
-  log "Writing systemd user service"
+write_systemd_services() {
+  log "Writing systemd user services"
 
   mkdir -p "$SYSTEMD_USER_DIR"
 
-  cat > "$SYSTEMD_USER_DIR/$SERVICE_NAME" <<UNIT
+  cat > "$SYSTEMD_USER_DIR/$DAEMON_SERVICE_NAME" <<UNIT
 [Unit]
 Description=Local Whisper dictation daemon
 
 [Service]
 Type=simple
-Environment=DICTATE_MODEL=$DICTATE_MODEL
-Environment=DICTATE_DEVICE=$DICTATE_DEVICE
-Environment=DICTATE_COMPUTE_TYPE=$DICTATE_COMPUTE_TYPE
-Environment=DICTATE_LANGUAGE=$DICTATE_LANGUAGE
 ExecStart=%h/.local/bin/dictation-daemon-run
 Restart=on-failure
 RestartSec=2
@@ -456,8 +915,32 @@ RestartSec=2
 WantedBy=default.target
 UNIT
 
+  if [[ "$INSTALL_TRAY" == "1" ]]; then
+    cat > "$SYSTEMD_USER_DIR/$TRAY_SERVICE_NAME" <<UNIT
+[Unit]
+Description=Local dictation tray controller
+After=graphical-session.target $DAEMON_SERVICE_NAME
+Wants=$DAEMON_SERVICE_NAME
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/dictation-tray
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+UNIT
+  fi
+
   systemctl --user daemon-reload
-  systemctl --user enable --now "$SERVICE_NAME"
+  systemctl --user enable --now "$DAEMON_SERVICE_NAME"
+
+  if [[ "$INSTALL_TRAY" == "1" ]]; then
+    # Make sure systemd user services have the current graphical session environment.
+    systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XAUTHORITY DBUS_SESSION_BUS_ADDRESS || true
+    systemctl --user enable --now "$TRAY_SERVICE_NAME"
+  fi
 }
 
 install_gnome_shortcut() {
@@ -477,7 +960,7 @@ install_gnome_shortcut() {
   local schema="org.gnome.settings-daemon.plugins.media-keys"
   local custom_schema="org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$key_path"
 
-  # Use Python to preserve existing custom shortcuts and append our path if missing.
+  # Preserve existing custom shortcuts and append our path if missing.
   python3 - "$key_path" <<'PY'
 import ast
 import subprocess
@@ -512,21 +995,27 @@ PY
 wait_for_service() {
   log "Checking service"
 
-  systemctl --user --no-pager status "$SERVICE_NAME" || true
+  systemctl --user --no-pager status "$DAEMON_SERVICE_NAME" || true
 
   local socket_path="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/dictation/dictation.sock"
 
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     if [[ -S "$socket_path" ]]; then
       log "Daemon socket is ready: $socket_path"
-      return 0
+      break
     fi
     sleep 1
   done
 
-  warn "Daemon socket was not found yet: $socket_path"
-  warn "The model may still be downloading/loading. Check:"
-  warn "  journalctl --user -u $SERVICE_NAME -f"
+  if [[ ! -S "$socket_path" ]]; then
+    warn "Daemon socket was not found yet: $socket_path"
+    warn "The model may still be downloading/loading. Check:"
+    warn "  journalctl --user -u $DAEMON_SERVICE_NAME -f"
+  fi
+
+  if [[ "$INSTALL_TRAY" == "1" ]]; then
+    systemctl --user --no-pager status "$TRAY_SERVICE_NAME" || true
+  fi
 }
 
 print_summary() {
@@ -541,34 +1030,40 @@ Hotkey:
 Usage:
   Press Super+S once  -> start recording
   Press Super+S again -> stop, transcribe, copy to clipboard
+  Ctrl+V              -> paste
 
-Paste:
-  Ctrl+V
+Tray:
+  The tray service is: $TRAY_SERVICE_NAME
+  It provides model/language/device selection.
+  GNOME needs AppIndicator/KStatusNotifierItem extension enabled.
+
+Config file:
+  $CONFIG_FILE
+
+Current config:
+$(sed 's/^/  /' "$CONFIG_FILE" 2>/dev/null || true)
 
 Useful commands:
-  systemctl --user status $SERVICE_NAME
-  journalctl --user -u $SERVICE_NAME -f
+  dictation-config status
+  dictation-config set-model small
+  dictation-config set-model medium
+  dictation-config set-model large-v3
+  dictation-config set-language auto
+  dictation-config set-language ru
+  dictation-config set-language en
+  systemctl --user status $DAEMON_SERVICE_NAME
+  systemctl --user status $TRAY_SERVICE_NAME
+  journalctl --user -u $DAEMON_SERVICE_NAME -f
+  journalctl --user -u $TRAY_SERVICE_NAME -f
   cat "\${XDG_RUNTIME_DIR}/dictation/dictation.log"
   wl-paste
 
-Configuration:
-  model:        $DICTATE_MODEL
-  device:       $DICTATE_DEVICE
-  compute type: $DICTATE_COMPUTE_TYPE
-  language:     $DICTATE_LANGUAGE
-
-To change model later, edit:
-  $SYSTEMD_USER_DIR/$SERVICE_NAME
-
-Then run:
-  systemctl --user daemon-reload
-  systemctl --user restart $SERVICE_NAME
-
 Examples:
-  DICTATE_MODEL=small  ./install-dictation.sh
-  DICTATE_MODEL=medium ./install-dictation.sh
-  DICTATE_LANGUAGE=ru  ./install-dictation.sh
-  DICTATE_LANGUAGE=auto ./install-dictation.sh
+  DICTATE_MODEL=small  ./install-dictation-with-tray.sh
+  DICTATE_MODEL=medium ./install-dictation-with-tray.sh
+  DICTATE_LANGUAGE=ru  ./install-dictation-with-tray.sh
+  DICTATE_LANGUAGE=auto ./install-dictation-with-tray.sh
+  INSTALL_TRAY=0 ./install-dictation-with-tray.sh
 ============================================================
 
 EOF
@@ -579,17 +1074,22 @@ main() {
     die "Do not run this installer as root. Run as your normal desktop user."
   fi
 
-  log "Installing local GNOME dictation service"
+  log "Installing local GNOME dictation service with tray controller"
 
   install_host_packages_if_missing
-  mkdir -p "$BASE" "$BIN" "$SYSTEMD_USER_DIR"
+  install_tray_packages_if_missing
 
+  mkdir -p "$BASE" "$BIN" "$SYSTEMD_USER_DIR" "$CONFIG_DIR"
+
+  write_config_file
   create_venv_and_install_python_deps
   write_daemon_py
   write_daemon_runner
   write_transcribe_client
   write_toggle_script
-  write_systemd_service
+  write_config_cli
+  write_tray_app
+  write_systemd_services
   install_gnome_shortcut
   wait_for_service
   print_summary
