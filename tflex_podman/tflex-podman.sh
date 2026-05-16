@@ -508,6 +508,7 @@ podman_run() {
     --user "$(id -u):$(id -g)"
     --group-add keep-groups
     --security-opt label=disable
+    --ipc=host
     -e HOME=/mnt/tflex/home
     -e USER="$USER"
     -e LOGNAME="$USER"
@@ -545,6 +546,7 @@ podman_run() {
   fi
 
   args+=("${XAUTH_ARGS[@]}")
+
 
   case "$USE_NVIDIA" in
     1)
